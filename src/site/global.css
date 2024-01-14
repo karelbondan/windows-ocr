@@ -1,0 +1,21 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+#draw {
+    border: 1px solid white;
+    position: fixed;
+    width: auto;
+    height: auto;
+    z-index: 99;
+}
+
+#overlay {
+    clip-path: url(#clip_path);
+    -webkit-clip-path: url(#clip_path);
+}
+
+body{
+    margin: 0px;
+    display: block;
+}

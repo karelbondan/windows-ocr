@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self'" />
+    <title>OCR</title>
+    <link rel="stylesheet" href="../../dist/site/style.css">
+    <script defer src="../../dist/scripts/init.js"></script>
+    <script defer src="../../dist/scripts/listener.js"></script>
+    <script defer src="../../dist/scripts/rectangle.js"></script>
+    <script defer src="../../dist/scripts/screenshot.js"></script>
+    <script defer src="../../dist/renderer/renderer.js"></script>
+</head>
+
+<body>
+    <!-- <button id="prompt_bt" class="fixed bottom-0 right-0 bg-black/30 text-white p-2 z-[10]">prompt</button> -->
+    <div id="testing_grounds" class="z-[5] relative">
+        <div id="prompt"
+            class="fixed flex justify-center transition-all text-white w-full text-center -top-20 duration-500 pointer-events-none">
+            <div id="prompt_wrapper"
+                class="pointer-events-auto p-3 rounded-md bg-[#3D3D3D] shadow-lg flex space-x-5 w-[363px] items-center text-center align-middle overflow-hidden transition-all duration-500">
+                <p id="rich_description" class="whitespace-nowrap">
+                    Select an area where the OCR will be performed
+                </p>
+                <div class="border-l-2 h-5 border-white/20"></div>
+                <form id="enable_enter">
+                    <button id="screenshot_button" title="screenshot" type="submit"
+                        class="min-w-8 min-h-8 flex items-center justify-center bg-white/10 hover:bg-green-500 transition-all rounded-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5px"
+                            stroke="currentColor" class="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="relative z-[2]">
+        <div id="draw" class="select-none cursor-grab opacity-0"></div>
+        <div id="listener" class="bg-black/70 h-[100vh] w-[100%] cursor-crosshair absolute top-0 select-none">
+            <div id="overlay"
+                class="fixed left-0 top-0 z-[98] select-none bg-black/60 opacity-0 h-screen w-screen transition-all duration-500">
+            </div>
+            <img id="source_img" class="w-screen" draggable="false" />
+        </div>
+    </div>
+    <svg id="hello_world" width="0" height="0">
+        <defs>
+            <clipPath id="clip_path">
+                <path />
+            </clipPath>
+        </defs>
+    </svg>
+</body>
+
+</html>
