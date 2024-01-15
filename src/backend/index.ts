@@ -44,6 +44,8 @@ function createMainWindow() {
             click: (item, window, event) => {
                 if (!screenshotWindow)
                     createScreenshotWindow();
+                else
+                    screenshotWindow.focus();
             }
         },
         {
@@ -51,6 +53,8 @@ function createMainWindow() {
             click: (item, window, event) => {
                 if (!aboutWindow)
                     createAboutWindow();
+                else
+                    aboutWindow.focus();
             }
         },
         { type: "separator" },
@@ -129,6 +133,7 @@ app.whenReady().then(async () => {
                 createScreenshotWindow();
             } else {
                 console.log("ocr window already opened");
+                screenshotWindow.focus();
             }
         })
 

@@ -43,6 +43,8 @@ function createMainWindow() {
             click: (item, window, event) => {
                 if (!screenshotWindow)
                     createScreenshotWindow();
+                else
+                    screenshotWindow.focus();
             }
         },
         {
@@ -50,6 +52,8 @@ function createMainWindow() {
             click: (item, window, event) => {
                 if (!aboutWindow)
                     createAboutWindow();
+                else
+                    aboutWindow.focus();
             }
         },
         { type: "separator" },
@@ -121,6 +125,7 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         }
         else {
             console.log("ocr window already opened");
+            screenshotWindow.focus();
         }
     });
     if (!kbdTrigger)
