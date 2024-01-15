@@ -1,6 +1,6 @@
 import {
     app, BrowserWindow, ipcMain, screen, desktopCapturer, globalShortcut,
-    Tray, Menu, nativeImage
+    Tray, Menu, nativeImage, Notification
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
@@ -29,6 +29,7 @@ function createMainWindow() {
             webSecurity: true,
             sandbox: true,
         },
+        icon: appIcon
     })
 
     mainWindow!.tray = new Tray(trayIcon);
@@ -78,7 +79,7 @@ async function createScreenshotWindow() {
         for (const source of sources) {
             if (source) {
                 fs.writeFileSync(
-                    path.join(os.tmpdir(), 'windowsocrtemp.png'),
+                    path.join(os.tmpdir(), 'WindowsOCR.png'),
                     source.thumbnail.toPNG()
                 );
                 return
@@ -92,7 +93,8 @@ async function createScreenshotWindow() {
             contextIsolation: true,
             nodeIntegration: true,
             preload: path.join(__dirname, 'preload.js')
-        }
+        },
+        minimizable: false, resizable: false, icon: appIcon
     });
 
     screenshotWindow.setMenuBarVisibility(false);
@@ -112,7 +114,8 @@ async function createScreenshotWindow() {
 
 function createAboutWindow() {
     aboutWindow = new BrowserWindow({
-        width: 400, height: 300, show: false, center: true, resizable: false
+        width: 400, height: 300, show: false, center: true, resizable: false,
+        icon: appIcon
     })
     aboutWindow.setMenu(null)
     aboutWindow.setIcon(appIcon);
@@ -128,19 +131,22 @@ function createAboutWindow() {
 app.whenReady().then(async () => {
     const kbdTrigger = globalShortcut.register(
         usrConfig.keyboardShortcut, () => {
-            if (!screenshotWindow){
-                console.log("ocr capture initiated");
+            if (!screenshotWindow) {
+                console.log("OCR capture initiated");
                 createScreenshotWindow();
             } else {
-                console.log("ocr window already opened");
+                console.log("OCR window already opened");
                 screenshotWindow.focus();
             }
         })
 
     if (!kbdTrigger)
-        console.log("global shortcut registration failed");
-    else 
-        console.log("global shortcut registration success");
+        console.log("Global shortcut registration failed");
+    else
+        console.log("Global shortcut registration success");
+
+    if (process.platform === 'win32')
+        app.setAppUserModelId("Windows OCR");
 
     createMainWindow();
 
@@ -148,6 +154,12 @@ app.whenReady().then(async () => {
         if (BrowserWindow.getAllWindows().length === 0)
             createMainWindow();
     })
+
+    new Notification({
+        icon: appIcon,
+        title: "Minimized to tray",
+        body: `App has been minimized to tray. Press ${usrConfig.keyboardShortcut} to launch the OCR`
+    }).show();
 })
 
 app.setAboutPanelOptions({
@@ -164,10 +176,10 @@ app.on("before-quit", ev => {
     mainWindow = null;
     screenshotWindow = null;
     aboutWindow = null;
+    fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCR.png'))
 });
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin')
         app.quit();
-    fs.unlinkSync(path.join(os.tmpdir(), 'windowsocrtemp.png'))
 })

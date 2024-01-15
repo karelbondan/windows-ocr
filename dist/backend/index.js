@@ -29,6 +29,7 @@ function createMainWindow() {
             webSecurity: true,
             sandbox: true,
         },
+        icon: appIcon
     });
     mainWindow.tray = new electron_1.Tray(trayIcon);
     const menu = electron_1.Menu.buildFromTemplate([
@@ -75,7 +76,7 @@ function createScreenshotWindow() {
         }).then((sources) => __awaiter(this, void 0, void 0, function* () {
             for (const source of sources) {
                 if (source) {
-                    fs_1.default.writeFileSync(path_1.default.join(os_1.default.tmpdir(), 'windowsocrtemp.png'), source.thumbnail.toPNG());
+                    fs_1.default.writeFileSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'), source.thumbnail.toPNG());
                     return;
                 }
             }
@@ -86,7 +87,8 @@ function createScreenshotWindow() {
                 contextIsolation: true,
                 nodeIntegration: true,
                 preload: path_1.default.join(__dirname, 'preload.js')
-            }
+            },
+            minimizable: false, resizable: false, icon: appIcon
         });
         screenshotWindow.setMenuBarVisibility(false);
         screenshotWindow.setIcon(appIcon);
@@ -105,7 +107,8 @@ function createScreenshotWindow() {
 }
 function createAboutWindow() {
     aboutWindow = new electron_1.BrowserWindow({
-        width: 400, height: 300, show: false, center: true, resizable: false
+        width: 400, height: 300, show: false, center: true, resizable: false,
+        icon: appIcon
     });
     aboutWindow.setMenu(null);
     aboutWindow.setIcon(appIcon);
@@ -120,23 +123,30 @@ function createAboutWindow() {
 electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function* () {
     const kbdTrigger = electron_1.globalShortcut.register(usrConfig.keyboardShortcut, () => {
         if (!screenshotWindow) {
-            console.log("ocr capture initiated");
+            console.log("OCR capture initiated");
             createScreenshotWindow();
         }
         else {
-            console.log("ocr window already opened");
+            console.log("OCR window already opened");
             screenshotWindow.focus();
         }
     });
     if (!kbdTrigger)
-        console.log("global shortcut registration failed");
+        console.log("Global shortcut registration failed");
     else
-        console.log("global shortcut registration success");
+        console.log("Global shortcut registration success");
+    if (process.platform === 'win32')
+        electron_1.app.setAppUserModelId("Windows OCR");
     createMainWindow();
     electron_1.app.on('activate', () => {
         if (electron_1.BrowserWindow.getAllWindows().length === 0)
             createMainWindow();
     });
+    new electron_1.Notification({
+        icon: appIcon,
+        title: "Minimized to tray",
+        body: `App has been minimized to tray. Press ${usrConfig.keyboardShortcut} to launch the OCR`
+    }).show();
 }));
 electron_1.app.setAboutPanelOptions({
     applicationName: "Windows OCR",
@@ -151,9 +161,9 @@ electron_1.app.on("before-quit", ev => {
     mainWindow = null;
     screenshotWindow = null;
     aboutWindow = null;
+    fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'));
 });
 electron_1.app.on('window-all-closed', () => {
     if (process.platform !== 'darwin')
         electron_1.app.quit();
-    fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'windowsocrtemp.png'));
 });
