@@ -1,3 +1,7 @@
 "use strict";
 // @ts-expect-error
-document.getElementById("source_img").src = path.join(os.tmpdir(), 'windowsocrtemp.png');
+window.ocrRenderer.loadImage((val) => {
+    // @ts-expect-error
+    document.getElementById("source_img").src = window.ocrRenderer.tempImageLoc();
+    console.log("Load image success");
+});
