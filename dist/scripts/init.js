@@ -3,10 +3,15 @@ const container = document.getElementById("container_all");
 const listener = document.getElementById("listener");
 const draw = document.getElementById("draw");
 const overlay = document.getElementById("overlay");
+const spinner = document.getElementById("spinner");
 const prompt_popup = document.getElementById("prompt");
 const prompt_wrapper = document.getElementById("prompt_wrapper");
+const prompt_separator = document.getElementById("prompt_separator");
 const prompt_bt = document.getElementById("prompt_bt");
+const rich_description = document.getElementById("rich_description");
 const clipPath = document.getElementById("clip_path");
+const screenshot_bt = document.getElementById("screenshot_button");
+const enter_bt = document.getElementById("enable_enter");
 let isCreatingRectangle = false;
 let isDragging = false;
 let initialPoints = [];
@@ -66,6 +71,19 @@ function move_rectangle(e, draw) {
         L${listener.clientWidth},${listener.clientHeight} 
         L${listener.clientWidth},0 Z`);
     clipPath.replaceChild(closeIconPath, clipPath.childNodes[1]);
+}
+function close_window() {
+    prompt_popup.style.top = '-5rem';
+    overlay.classList.toggle("opacity-0");
+    draw.classList.toggle('opacity-0');
+    draw.style.top = '0px';
+    draw.style.bottom = `${listener.clientHeight}px`;
+    draw.style.left = '0px';
+    draw.style.right = `${listener.clientWidth}px`;
+    setTimeout(() => {
+        // @ts-expect-error
+        window.ocrRenderer.closeWindow();
+    }, 550);
 }
 setTimeout(() => {
     const ns = "http://www.w3.org/2000/svg";

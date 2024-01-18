@@ -2,10 +2,15 @@ const container = document.getElementById("container_all") as HTMLDivElement;
 const listener = document.getElementById("listener")! as HTMLDivElement;
 const draw = document.getElementById("draw")! as HTMLDivElement;
 const overlay = document.getElementById("overlay")! as HTMLDivElement;
+const spinner = document.getElementById("spinner")! as HTMLDivElement;
 const prompt_popup = document.getElementById("prompt")! as HTMLDivElement;
 const prompt_wrapper = document.getElementById("prompt_wrapper")! as HTMLDivElement;
+const prompt_separator = document.getElementById("prompt_separator")! as HTMLDivElement;
 const prompt_bt = document.getElementById("prompt_bt")! as HTMLButtonElement;
+const rich_description = document.getElementById("rich_description")! as HTMLParagraphElement;
 const clipPath = document.getElementById("clip_path")!;
+const screenshot_bt = document.getElementById("screenshot_button") as HTMLButtonElement;
+const enter_bt = document.getElementById("enable_enter") as HTMLFormElement;
 
 let isCreatingRectangle = false;
 let isDragging = false;
@@ -74,6 +79,21 @@ function move_rectangle(e: MouseEvent, draw: HTMLDivElement): void {
         L${listener.clientWidth},0 Z`
     );
     clipPath.replaceChild(closeIconPath, clipPath.childNodes[1]);
+}
+
+function close_window() {
+    prompt_popup.style.top = '-5rem';
+    overlay.classList.toggle("opacity-0");
+    draw.classList.toggle('opacity-0');
+    draw.style.top = '0px';
+    draw.style.bottom = `${listener.clientHeight}px`;
+    draw.style.left = '0px';
+    draw.style.right = `${listener.clientWidth}px`;
+
+    setTimeout(() => {
+        // @ts-expect-error
+        window.ocrRenderer.closeWindow();
+    }, 550);
 }
 
 setTimeout(() => {
