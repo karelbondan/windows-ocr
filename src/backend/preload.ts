@@ -1,26 +1,18 @@
 import { ipcRenderer, contextBridge } from "electron";
-import os from 'os'
-import path from 'path'
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
 
-export const versionsPreload = {
-    chrome: () => process.versions.chrome,
-    electron: () => process.versions.electron
+export const ocrRenderer = {
+    loadImage: (callback: (val: any) => {}) => ipcRenderer.on('ocr:loadimg', (_event, value) => callback(value)),
+    exportImageAndDoOCR: (img: string) => {
+        const imgData = img.replace(/^data:image\/\w+;base64,/, '');
+        const imgBuffer = Buffer.from(imgData, 'base64');
+        fs.writeFileSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'), imgBuffer);
+        return ipcRenderer.invoke('ocr:perform', 'send-receive test');
+    },
+    tempImageLoc: () => path.join(os.tmpdir(), 'WindowsOCR.png'),
+    closeWindow: () => ipcRenderer.send('window:close')
 }
 
-export const ipcRendererPreload = {
-    send: (channel: any, data: any) => ipcRenderer.send(channel, data),
-    on: (channel: any, func: (...args: any) => {}) => ipcRenderer.on(channel, (event, ...args) => func(...args))
-}
-
-export const osPreload = {
-    tmpdir: () => os.tmpdir()
-}
-
-export const pathPreload = {
-    join: (...paths: any) => path.join(...paths)
-}
-
-contextBridge.exposeInMainWorld('versions', versionsPreload)
-contextBridge.exposeInMainWorld('ipcRenderer', ipcRendererPreload)
-contextBridge.exposeInMainWorld('os', osPreload)
-contextBridge.exposeInMainWorld('path', pathPreload)
+contextBridge.exposeInMainWorld('ocrRenderer', ocrRenderer);
