@@ -24,7 +24,7 @@ const trayIcon = electron_1.nativeImage.createFromPath(path_1.default.join(__dir
 const appIcon = electron_1.nativeImage.createFromPath(path_1.default.join(__dirname, "../../src/media/icon_color.png")).resize({ width: 50, height: 50 });
 function createMainWindow() {
     mainWindow.win = new electron_1.BrowserWindow({
-        width: 800, height: 600, center: true, minimizable: false, show: false,
+        width: 800, height: 600, minimizable: false, show: false,
         webPreferences: {
             webSecurity: true,
             sandbox: true,
@@ -97,6 +97,9 @@ function createScreenshotWindow() {
             screenshotWindow.setPosition(0, 0);
             screenshotWindow.show();
         });
+        screenshotWindow.webContents.on('did-finish-load', () => {
+            screenshotWindow.webContents.send("ocr:loadimg");
+        });
         screenshotWindow.on('close', () => {
             screenshotWindow = null;
         });
@@ -121,6 +124,21 @@ function createAboutWindow() {
     });
 }
 electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function* () {
+    if (fs_1.default.existsSync(path_1.default.join(electron_1.app.getAppPath(), 'credentials.json')))
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = path_1.default.join(electron_1.app.getAppPath(), 'credentials.json');
+    else {
+        electron_1.dialog.showMessageBoxSync({
+            type: "error",
+            title: "Windows OCR",
+            message: "Cannot find 'credentials.json' inside the application's directory. Please follow the initial setup process at the GitHub repository if you have not already."
+        });
+        electron_1.app.exit(1);
+    }
+    electron_1.ipcMain.handle('ocr:perform', (event, message) => __awaiter(void 0, void 0, void 0, function* () {
+        console.log(message);
+        for (var i = 0; i <= 100; i++) { }
+        console.log("handled successfully");
+    }));
     const kbdTrigger = electron_1.globalShortcut.register(usrConfig.keyboardShortcut, () => {
         if (!screenshotWindow) {
             console.log("OCR capture initiated");
@@ -148,13 +166,6 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         body: `App has been minimized to tray. Press ${usrConfig.keyboardShortcut} to launch the OCR`
     }).show();
 }));
-electron_1.app.setAboutPanelOptions({
-    applicationName: "Windows OCR",
-    applicationVersion: "Version 1.0.0",
-    iconPath: trayIcon.resize({ width: 50, height: 50 }).toDataURL(),
-    copyright: "Copyright © 2024 Karel Bondan",
-    version: "Version 1.0.0"
-});
 electron_1.app.on("before-quit", ev => {
     electron_1.globalShortcut.unregisterAll();
     mainWindow.win.removeAllListeners("close");

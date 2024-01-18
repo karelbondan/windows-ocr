@@ -1,6 +1,6 @@
 import {
     app, BrowserWindow, ipcMain, screen, desktopCapturer, globalShortcut,
-    Tray, Menu, nativeImage, Notification
+    Tray, Menu, nativeImage, Notification, dialog
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
@@ -24,7 +24,7 @@ const appIcon = nativeImage.createFromPath(
 
 function createMainWindow() {
     mainWindow!.win = new BrowserWindow({
-        width: 800, height: 600, center: true, minimizable: false, show: false,
+        width: 800, height: 600, minimizable: false, show: false,
         webPreferences: {
             webSecurity: true,
             sandbox: true,
@@ -104,6 +104,9 @@ async function createScreenshotWindow() {
         screenshotWindow!.setPosition(0, 0);
         screenshotWindow!.show();
     })
+    screenshotWindow.webContents.on('did-finish-load', () => {
+        screenshotWindow!.webContents.send("ocr:loadimg");
+    })
     screenshotWindow.on('close', () => {
         screenshotWindow = null;
     })
@@ -129,6 +132,23 @@ function createAboutWindow() {
 }
 
 app.whenReady().then(async () => {
+    if (fs.existsSync(path.join(app.getAppPath(), 'credentials.json')))
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(app.getAppPath(), 'credentials.json');
+    else {
+        dialog.showMessageBoxSync({
+            type: "error",
+            title: "Windows OCR",
+            message: "Cannot find 'credentials.json' inside the application's directory. Please follow the initial setup process at the GitHub repository if you have not already."
+        })
+        app.exit(1);
+    }
+
+    ipcMain.handle('ocr:perform', async (event, message) => {
+        console.log(message);
+        for (var i = 0; i <= 100; i++) { }
+        console.log("handled successfully");
+    })
+
     const kbdTrigger = globalShortcut.register(
         usrConfig.keyboardShortcut, () => {
             if (!screenshotWindow) {
@@ -160,14 +180,6 @@ app.whenReady().then(async () => {
         title: "Minimized to tray",
         body: `App has been minimized to tray. Press ${usrConfig.keyboardShortcut} to launch the OCR`
     }).show();
-})
-
-app.setAboutPanelOptions({
-    applicationName: "Windows OCR",
-    applicationVersion: "Version 1.0.0",
-    iconPath: trayIcon.resize({ width: 50, height: 50 }).toDataURL(),
-    copyright: "Copyright © 2024 Karel Bondan",
-    version: "Version 1.0.0"
 })
 
 app.on("before-quit", ev => {
