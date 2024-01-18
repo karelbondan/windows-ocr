@@ -135,10 +135,12 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         electron_1.app.exit(1);
     }
     electron_1.ipcMain.handle('ocr:perform', (event, message) => __awaiter(void 0, void 0, void 0, function* () {
-        console.log(message);
-        for (var i = 0; i <= 100; i++) { }
-        console.log("handled successfully");
+        // do ocr google here
+        return yield new Promise(resolve => setTimeout(() => resolve('delay'), 3000));
     }));
+    electron_1.ipcMain.on('window:close', (event, message) => {
+        screenshotWindow === null || screenshotWindow === void 0 ? void 0 : screenshotWindow.close();
+    });
     const kbdTrigger = electron_1.globalShortcut.register(usrConfig.keyboardShortcut, () => {
         if (!screenshotWindow) {
             console.log("OCR capture initiated");

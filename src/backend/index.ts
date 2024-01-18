@@ -144,9 +144,12 @@ app.whenReady().then(async () => {
     }
 
     ipcMain.handle('ocr:perform', async (event, message) => {
-        console.log(message);
-        for (var i = 0; i <= 100; i++) { }
-        console.log("handled successfully");
+        // do ocr google here
+        return await new Promise(resolve => setTimeout(() => resolve('delay'), 3000));
+    })
+
+    ipcMain.on('window:close', (event, message) => {
+        screenshotWindow?.close();
     })
 
     const kbdTrigger = globalShortcut.register(
