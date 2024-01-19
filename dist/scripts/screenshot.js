@@ -27,14 +27,26 @@ screenshot_bt.onclick = function (e) {
             screenshot_bt.disabled = true;
             spinner.classList.toggle('hidden');
             // @ts-expect-error
-            yield window.ocrRenderer.exportImageAndDoOCR(canvas.toDataURL('image/png', 1));
-            console.log("Cropped image saved successfully");
+            window.ocrRenderer.exportImageAndDoOCR(canvas.toDataURL('image/png', 1))
+                // @ts-expect-error
+                .then(result => {
+                console.log(result);
+                // console.log("Cropped image saved successfully");
+                // if (!result.error){
+                // }
+                close_window();
+            }
+            // @ts-expect-error
+            ).catch(err => {
+                close_window(err.toString());
+                // @ts-expect-error
+                window.ocrRenderer.spawnError(`Something happened while trying to perform the OCR. The detailed error message is as follows:\n\n${err.toString()}`);
+            });
             // temp
             // const dummy_a = document.createElement('a');
             // dummy_a.href = canvas.toDataURL('image/png', 1).replace("image/png", "image/octet-stream");
             // dummy_a.download = "ngentot.png";
             // dummy_a.click();
-            close_window();
         }
     });
 };
