@@ -72,7 +72,7 @@ function move_rectangle(e, draw) {
         L${listener.clientWidth},0 Z`);
     clipPath.replaceChild(closeIconPath, clipPath.childNodes[1]);
 }
-function close_window() {
+function close_window(err = "") {
     prompt_popup.style.top = '-5rem';
     overlay.classList.toggle("opacity-0");
     draw.classList.toggle('opacity-0');
@@ -82,7 +82,7 @@ function close_window() {
     draw.style.right = `${listener.clientWidth}px`;
     setTimeout(() => {
         // @ts-expect-error
-        window.ocrRenderer.closeWindow();
+        window.ocrRenderer.closeWindow(err);
     }, 550);
 }
 setTimeout(() => {
