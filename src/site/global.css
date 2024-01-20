@@ -19,3 +19,7 @@ body{
     margin: 0px;
     display: block;
 }
+
+:root {
+    color-scheme: dark;
+  }
