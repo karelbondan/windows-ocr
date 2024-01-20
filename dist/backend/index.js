@@ -44,7 +44,7 @@ function createMainWindow() {
         },
         { type: "separator" },
         {
-            label: "Launch OCR",
+            label: "Launch",
             click: (item, window, event) => {
                 if (!screenshotWindow)
                     createScreenshotWindow();
@@ -53,7 +53,7 @@ function createMainWindow() {
             }
         },
         {
-            label: "About",
+            label: "Settings",
             click: (item, window, event) => {
                 if (!aboutWindow)
                     createAboutWindow();

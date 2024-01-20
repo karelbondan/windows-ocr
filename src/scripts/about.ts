@@ -11,7 +11,7 @@ interface userConfig {
     openNotepad: boolean
 }
 
-const chk_disabled = "min-w-5 min-h-5 bg-neutral-700 rounded-sm cursor-pointer transition-all";
+const chk_disabled = "min-w-5 min-h-5 bg-neutral-700 outline-none outline-offset-0 rounded-sm cursor-pointer transition-all";
 const chk_enabled = "min-w-5 min-h-5 bg-green-700 outline outline-2 outline-offset-[3px] outline-green-400 rounded-sm cursor-pointer transition-all";
 let prev_config: userConfig
 
