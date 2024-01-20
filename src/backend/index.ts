@@ -1,10 +1,12 @@
 import {
     app, BrowserWindow, ipcMain, screen, desktopCapturer, globalShortcut,
     Tray, Menu, nativeImage, Notification, dialog
-} from 'electron'
-import path from 'path'
-import fs from 'fs'
-import os from 'os'
+} from 'electron';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
+import vision from '@google-cloud/vision';
+import spawnObj from 'child_process'
 
 let mainWindow: {
     win: BrowserWindow | null,
@@ -13,7 +15,8 @@ let mainWindow: {
 } | null = { win: null, tray: null, icons: null };
 let screenshotWindow: BrowserWindow | null;
 let aboutWindow: BrowserWindow | null;
-const usrConfig = require('../../config.json');
+let usrConfig: userConfig = require(path.join(app.getAppPath(), 'config.json'));
+let fileName: string
 
 const trayIcon = nativeImage.createFromPath(
     path.join(__dirname, "../../src/media/icon_tray.png")
@@ -21,6 +24,7 @@ const trayIcon = nativeImage.createFromPath(
 const appIcon = nativeImage.createFromPath(
     path.join(__dirname, "../../src/media/icon_color.png")
 ).resize({ width: 50, height: 50 });
+const googleClient = new vision.ImageAnnotatorClient();
 
 function createMainWindow() {
     mainWindow!.win = new BrowserWindow({
@@ -117,10 +121,15 @@ async function createScreenshotWindow() {
 
 function createAboutWindow() {
     aboutWindow = new BrowserWindow({
-        width: 400, height: 300, show: false, center: true, resizable: false,
-        icon: appIcon
+        width: 700, height: 450, show: false, center: true,
+        icon: appIcon,
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: true,
+            preload: path.join(__dirname, 'preload.js')
+        },
     })
-    aboutWindow.setMenu(null)
+    aboutWindow.setMenuBarVisibility(false);
     aboutWindow.setIcon(appIcon);
     aboutWindow.loadFile(path.join(__dirname, '../../src/site/about.html'))
     aboutWindow.once('ready-to-show', () => {
@@ -131,29 +140,19 @@ function createAboutWindow() {
     })
 }
 
-app.whenReady().then(async () => {
-    if (fs.existsSync(path.join(app.getAppPath(), 'credentials.json')))
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(app.getAppPath(), 'credentials.json');
-    else {
-        dialog.showMessageBoxSync({
-            type: "error",
-            title: "Windows OCR",
-            message: "Cannot find 'credentials.json' inside the application's directory. Please follow the initial setup process at the GitHub repository if you have not already."
-        })
-        app.exit(1);
-    }
-
-    ipcMain.handle('ocr:perform', async (event, message) => {
-        // do ocr google here
-        return await new Promise(resolve => setTimeout(() => resolve('delay'), 3000));
+function createErrorDialog(title: string, body: string) {
+    dialog.showMessageBoxSync({
+        type: "error",
+        title: title,
+        message: body
     })
+    app.exit(1);
+}
 
-    ipcMain.on('window:close', (event, message) => {
-        screenshotWindow?.close();
-    })
-
+function registerShortcut(config: userConfig) {
+    globalShortcut.unregisterAll();
     const kbdTrigger = globalShortcut.register(
-        usrConfig.keyboardShortcut, () => {
+        config.keyboardShortcut.replace(/\s/g, ''), () => {
             if (!screenshotWindow) {
                 console.log("OCR capture initiated");
                 createScreenshotWindow();
@@ -167,6 +166,74 @@ app.whenReady().then(async () => {
         console.log("Global shortcut registration failed");
     else
         console.log("Global shortcut registration success");
+}
+
+app.whenReady().then(async () => {
+    if (fs.existsSync(path.join(app.getAppPath(), 'credentials.json')))
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(app.getAppPath(), 'credentials.json');
+    else {
+        createErrorDialog(
+            "Windows OCR",
+            "Cannot find 'credentials.json' inside the application's directory. Please follow the initial setup process at the GitHub repository if you have not already."
+        )
+    }
+
+    ipcMain.handle('ocr:perform', async (event, message) => {
+        if (usrConfig.saveAsScreenshot) {
+            const today = new Date();
+            fileName = `Screenshot_${today.toJSON().slice(0, 10).replace(/\-/g, '')}_${today.toString().split(' ')[4].replace(/\:/g, '')}.png`
+            fs.copyFileSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'), path.join(os.homedir(), 'Pictures', 'Screenshots', fileName));
+        }
+        return googleClient.documentTextDetection(path.join(os.tmpdir(), 'WindowsOCRCrop.png'));
+        // return await new Promise(resolve => setTimeout(() => resolve('delay'), 3000));
+    })
+
+    ipcMain.handle('config:load', (event, message) => {
+        return JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'config.json'), { encoding: 'utf8', flag: 'r' }))
+    })
+
+    ipcMain.handle('config:save', (event, message) => {
+        fs.writeFileSync(path.join(app.getAppPath(), 'config.json'), JSON.stringify({
+            keyboardShortcut: message.shortcut,
+            saveAsScreenshot: message.ss,
+            openNotepad: message.notepad
+        }));
+
+        usrConfig = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'config.json'), { encoding: 'utf8', flag: 'r' }))
+        registerShortcut(usrConfig);
+
+        new Notification({
+            icon: appIcon,
+            title: "Saved successfully",
+            body: "Configuration was updated and changes have been implemented successfully."
+        }).show();
+        return true;
+    })
+
+    ipcMain.on('window:close', (event, error) => {
+        if (error === "") {
+            screenshotWindow?.close();
+            if (usrConfig.openNotepad)
+                if (process.platform === 'win32')
+                    spawnObj.spawn("C:\\Windows\\notepad.exe", [path.join(os.tmpdir(), 'WindowsOCRResult.txt')]);
+            if (usrConfig.saveAsScreenshot){
+                new Notification({
+                    icon: appIcon,
+                    title: "Screenshot saved",
+                    body: `Screenshot was saved in ${os.homedir()}\\Pictures\\Screenshots\\${fileName}`
+                }).show();
+            }
+        }
+    })
+
+    ipcMain.on('window:error', (event, message) => {
+        createErrorDialog(
+            "Windows OCR",
+            message
+        )
+    })
+
+    registerShortcut(usrConfig);
 
     if (process.platform === 'win32')
         app.setAppUserModelId("Windows OCR");
@@ -180,8 +247,8 @@ app.whenReady().then(async () => {
 
     new Notification({
         icon: appIcon,
-        title: "Minimized to tray",
-        body: `App has been minimized to tray. Press ${usrConfig.keyboardShortcut} to launch the OCR`
+        title: "Minimised to tray",
+        body: `App has been minimised to tray. Press ${usrConfig.keyboardShortcut.replace(/\s/g, '')} to launch the OCR`
     }).show();
 })
 
@@ -192,6 +259,8 @@ app.on("before-quit", ev => {
     screenshotWindow = null;
     aboutWindow = null;
     fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCR.png'))
+    fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'))
+    fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRResult.txt'))
 });
 
 app.on('window-all-closed', () => {

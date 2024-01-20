@@ -16,12 +16,16 @@ const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const os_1 = __importDefault(require("os"));
+const vision_1 = __importDefault(require("@google-cloud/vision"));
+const child_process_1 = __importDefault(require("child_process"));
 let mainWindow = { win: null, tray: null, icons: null };
 let screenshotWindow;
 let aboutWindow;
-const usrConfig = require('../../config.json');
+let usrConfig = require(path_1.default.join(electron_1.app.getAppPath(), 'config.json'));
+let fileName;
 const trayIcon = electron_1.nativeImage.createFromPath(path_1.default.join(__dirname, "../../src/media/icon_tray.png")).resize({ width: 16, height: 16 });
 const appIcon = electron_1.nativeImage.createFromPath(path_1.default.join(__dirname, "../../src/media/icon_color.png")).resize({ width: 50, height: 50 });
+const googleClient = new vision_1.default.ImageAnnotatorClient();
 function createMainWindow() {
     mainWindow.win = new electron_1.BrowserWindow({
         width: 800, height: 600, minimizable: false, show: false,
@@ -110,10 +114,15 @@ function createScreenshotWindow() {
 }
 function createAboutWindow() {
     aboutWindow = new electron_1.BrowserWindow({
-        width: 400, height: 300, show: false, center: true, resizable: false,
-        icon: appIcon
+        width: 700, height: 450, show: false, center: true,
+        icon: appIcon,
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: true,
+            preload: path_1.default.join(__dirname, 'preload.js')
+        },
     });
-    aboutWindow.setMenu(null);
+    aboutWindow.setMenuBarVisibility(false);
     aboutWindow.setIcon(appIcon);
     aboutWindow.loadFile(path_1.default.join(__dirname, '../../src/site/about.html'));
     aboutWindow.once('ready-to-show', () => {
@@ -123,25 +132,17 @@ function createAboutWindow() {
         aboutWindow = null;
     });
 }
-electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function* () {
-    if (fs_1.default.existsSync(path_1.default.join(electron_1.app.getAppPath(), 'credentials.json')))
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = path_1.default.join(electron_1.app.getAppPath(), 'credentials.json');
-    else {
-        electron_1.dialog.showMessageBoxSync({
-            type: "error",
-            title: "Windows OCR",
-            message: "Cannot find 'credentials.json' inside the application's directory. Please follow the initial setup process at the GitHub repository if you have not already."
-        });
-        electron_1.app.exit(1);
-    }
-    electron_1.ipcMain.handle('ocr:perform', (event, message) => __awaiter(void 0, void 0, void 0, function* () {
-        // do ocr google here
-        return yield new Promise(resolve => setTimeout(() => resolve('delay'), 3000));
-    }));
-    electron_1.ipcMain.on('window:close', (event, message) => {
-        screenshotWindow === null || screenshotWindow === void 0 ? void 0 : screenshotWindow.close();
+function createErrorDialog(title, body) {
+    electron_1.dialog.showMessageBoxSync({
+        type: "error",
+        title: title,
+        message: body
     });
-    const kbdTrigger = electron_1.globalShortcut.register(usrConfig.keyboardShortcut, () => {
+    electron_1.app.exit(1);
+}
+function registerShortcut(config) {
+    electron_1.globalShortcut.unregisterAll();
+    const kbdTrigger = electron_1.globalShortcut.register(config.keyboardShortcut.replace(/\s/g, ''), () => {
         if (!screenshotWindow) {
             console.log("OCR capture initiated");
             createScreenshotWindow();
@@ -155,6 +156,59 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         console.log("Global shortcut registration failed");
     else
         console.log("Global shortcut registration success");
+}
+electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function* () {
+    if (fs_1.default.existsSync(path_1.default.join(electron_1.app.getAppPath(), 'credentials.json')))
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = path_1.default.join(electron_1.app.getAppPath(), 'credentials.json');
+    else {
+        createErrorDialog("Windows OCR", "Cannot find 'credentials.json' inside the application's directory. Please follow the initial setup process at the GitHub repository if you have not already.");
+    }
+    electron_1.ipcMain.handle('ocr:perform', (event, message) => __awaiter(void 0, void 0, void 0, function* () {
+        if (usrConfig.saveAsScreenshot) {
+            const today = new Date();
+            fileName = `Screenshot_${today.toJSON().slice(0, 10).replace(/\-/g, '')}_${today.toString().split(' ')[4].replace(/\:/g, '')}.png`;
+            fs_1.default.copyFileSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRCrop.png'), path_1.default.join(os_1.default.homedir(), 'Pictures', 'Screenshots', fileName));
+        }
+        return googleClient.documentTextDetection(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRCrop.png'));
+        // return await new Promise(resolve => setTimeout(() => resolve('delay'), 3000));
+    }));
+    electron_1.ipcMain.handle('config:load', (event, message) => {
+        return JSON.parse(fs_1.default.readFileSync(path_1.default.join(electron_1.app.getAppPath(), 'config.json'), { encoding: 'utf8', flag: 'r' }));
+    });
+    electron_1.ipcMain.handle('config:save', (event, message) => {
+        fs_1.default.writeFileSync(path_1.default.join(electron_1.app.getAppPath(), 'config.json'), JSON.stringify({
+            keyboardShortcut: message.shortcut,
+            saveAsScreenshot: message.ss,
+            openNotepad: message.notepad
+        }));
+        usrConfig = JSON.parse(fs_1.default.readFileSync(path_1.default.join(electron_1.app.getAppPath(), 'config.json'), { encoding: 'utf8', flag: 'r' }));
+        registerShortcut(usrConfig);
+        new electron_1.Notification({
+            icon: appIcon,
+            title: "Saved successfully",
+            body: "Configuration was updated and changes have been implemented successfully."
+        }).show();
+        return true;
+    });
+    electron_1.ipcMain.on('window:close', (event, error) => {
+        if (error === "") {
+            screenshotWindow === null || screenshotWindow === void 0 ? void 0 : screenshotWindow.close();
+            if (usrConfig.openNotepad)
+                if (process.platform === 'win32')
+                    child_process_1.default.spawn("C:\\Windows\\notepad.exe", [path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRResult.txt')]);
+            if (usrConfig.saveAsScreenshot) {
+                new electron_1.Notification({
+                    icon: appIcon,
+                    title: "Screenshot saved",
+                    body: `Screenshot was saved in ${os_1.default.homedir()}\\Pictures\\Screenshots\\${fileName}`
+                }).show();
+            }
+        }
+    });
+    electron_1.ipcMain.on('window:error', (event, message) => {
+        createErrorDialog("Windows OCR", message);
+    });
+    registerShortcut(usrConfig);
     if (process.platform === 'win32')
         electron_1.app.setAppUserModelId("Windows OCR");
     createMainWindow();
@@ -164,8 +218,8 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     });
     new electron_1.Notification({
         icon: appIcon,
-        title: "Minimized to tray",
-        body: `App has been minimized to tray. Press ${usrConfig.keyboardShortcut} to launch the OCR`
+        title: "Minimised to tray",
+        body: `App has been minimised to tray. Press ${usrConfig.keyboardShortcut.replace(/\s/g, '')} to launch the OCR`
     }).show();
 }));
 electron_1.app.on("before-quit", ev => {
@@ -175,6 +229,8 @@ electron_1.app.on("before-quit", ev => {
     screenshotWindow = null;
     aboutWindow = null;
     fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'));
+    fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRCrop.png'));
+    fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRResult.txt'));
 });
 electron_1.app.on('window-all-closed', () => {
     if (process.platform !== 'darwin')

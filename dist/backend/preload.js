@@ -17,6 +17,10 @@ exports.ocrRenderer = {
         return electron_1.ipcRenderer.invoke('ocr:perform', 'send-receive test');
     },
     tempImageLoc: () => path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'),
-    closeWindow: () => electron_1.ipcRenderer.send('window:close')
+    closeWindow: (error) => electron_1.ipcRenderer.send('window:close', error),
+    spawnError: (message) => electron_1.ipcRenderer.send('window:error', message),
+    loadConfig: () => electron_1.ipcRenderer.invoke('config:load'),
+    saveConfig: (shortcut, ss, notepad) => electron_1.ipcRenderer.invoke('config:save', { shortcut: shortcut, ss: ss, notepad: notepad }),
+    writeTextToFile: (content) => fs_1.default.writeFileSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRResult.txt'), content, { encoding: 'utf-8' })
 };
 electron_1.contextBridge.exposeInMainWorld('ocrRenderer', exports.ocrRenderer);

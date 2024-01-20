@@ -24,11 +24,13 @@ screenshot_bt.onclick = async function (e) {
         window.ocrRenderer.exportImageAndDoOCR(canvas.toDataURL('image/png', 1))
             // @ts-expect-error
             .then(result => {
-                console.log(result);
-                // console.log("Cropped image saved successfully");
-                // if (!result.error){
-
-                // }
+                if (result.error) {
+                    throw result.error;
+                }
+                console.log("OCR completed successfully");
+                navigator.clipboard.writeText(result[0].fullTextAnnotation.text);
+                // @ts-expect-error
+                window.ocrRenderer.writeTextToFile(result[0].fullTextAnnotation.text);
                 close_window();
             }
                 // @ts-expect-error
@@ -38,13 +40,6 @@ screenshot_bt.onclick = async function (e) {
                 window.ocrRenderer.spawnError(
                     `Something happened while trying to perform the OCR. The detailed error message is as follows:\n\n${err.toString()}`);
             });
-
-        // temp
-        // const dummy_a = document.createElement('a');
-        // dummy_a.href = canvas.toDataURL('image/png', 1).replace("image/png", "image/octet-stream");
-        // dummy_a.download = "ngentot.png";
-        // dummy_a.click();
-
     }
 };
 

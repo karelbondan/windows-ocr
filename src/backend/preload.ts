@@ -12,7 +12,11 @@ export const ocrRenderer = {
         return ipcRenderer.invoke('ocr:perform', 'send-receive test');
     },
     tempImageLoc: () => path.join(os.tmpdir(), 'WindowsOCR.png'),
-    closeWindow: () => ipcRenderer.send('window:close')
+    closeWindow: (error: string) => ipcRenderer.send('window:close', error),
+    spawnError: (message: string) => ipcRenderer.send('window:error', message),
+    loadConfig: () => ipcRenderer.invoke('config:load'),
+    saveConfig: (shortcut: string, ss: boolean, notepad: boolean) => ipcRenderer.invoke('config:save', { shortcut: shortcut, ss: ss, notepad: notepad }),
+    writeTextToFile: (content: string) => fs.writeFileSync(path.join(os.tmpdir(), 'WindowsOCRResult.txt'), content, { encoding: 'utf-8' })
 }
 
 contextBridge.exposeInMainWorld('ocrRenderer', ocrRenderer);
