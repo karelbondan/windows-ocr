@@ -114,8 +114,8 @@ function createScreenshotWindow() {
 }
 function createAboutWindow() {
     aboutWindow = new electron_1.BrowserWindow({
-        width: 700, height: 450, show: false, center: true,
-        icon: appIcon,
+        width: 600, height: 450, show: false, center: true,
+        maximizable: false, icon: appIcon, resizable: false,
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: true,
@@ -190,18 +190,20 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         }).show();
         return true;
     });
-    electron_1.ipcMain.on('window:close', (event, error) => {
-        if (error === "") {
+    electron_1.ipcMain.on('window:close', (event, args) => {
+        if (args.error === "") {
             screenshotWindow === null || screenshotWindow === void 0 ? void 0 : screenshotWindow.close();
-            if (usrConfig.openNotepad)
-                if (process.platform === 'win32')
-                    child_process_1.default.spawn("C:\\Windows\\notepad.exe", [path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRResult.txt')]);
-            if (usrConfig.saveAsScreenshot) {
-                new electron_1.Notification({
-                    icon: appIcon,
-                    title: "Screenshot saved",
-                    body: `Screenshot was saved in ${os_1.default.homedir()}\\Pictures\\Screenshots\\${fileName}`
-                }).show();
+            if (!args.escape) {
+                if (usrConfig.openNotepad)
+                    if (process.platform === 'win32')
+                        child_process_1.default.spawn("C:\\Windows\\notepad.exe", [path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRResult.txt')]);
+                if (usrConfig.saveAsScreenshot) {
+                    new electron_1.Notification({
+                        icon: appIcon,
+                        title: "Screenshot saved",
+                        body: `Screenshot was saved in ${os_1.default.homedir()}\\Pictures\\Screenshots\\${fileName}`
+                    }).show();
+                }
             }
         }
     });

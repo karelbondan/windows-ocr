@@ -121,8 +121,8 @@ async function createScreenshotWindow() {
 
 function createAboutWindow() {
     aboutWindow = new BrowserWindow({
-        width: 700, height: 450, show: false, center: true,
-        icon: appIcon,
+        width: 600, height: 450, show: false, center: true,
+        maximizable: false, icon: appIcon, resizable: false,
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: true,
@@ -210,18 +210,20 @@ app.whenReady().then(async () => {
         return true;
     })
 
-    ipcMain.on('window:close', (event, error) => {
-        if (error === "") {
+    ipcMain.on('window:close', (event, args: { error: string, escape: boolean }) => {
+        if (args.error === "") {
             screenshotWindow?.close();
-            if (usrConfig.openNotepad)
-                if (process.platform === 'win32')
-                    spawnObj.spawn("C:\\Windows\\notepad.exe", [path.join(os.tmpdir(), 'WindowsOCRResult.txt')]);
-            if (usrConfig.saveAsScreenshot){
-                new Notification({
-                    icon: appIcon,
-                    title: "Screenshot saved",
-                    body: `Screenshot was saved in ${os.homedir()}\\Pictures\\Screenshots\\${fileName}`
-                }).show();
+            if (!args.escape) {
+                if (usrConfig.openNotepad)
+                    if (process.platform === 'win32')
+                        spawnObj.spawn("C:\\Windows\\notepad.exe", [path.join(os.tmpdir(), 'WindowsOCRResult.txt')]);
+                if (usrConfig.saveAsScreenshot) {
+                    new Notification({
+                        icon: appIcon,
+                        title: "Screenshot saved",
+                        body: `Screenshot was saved in ${os.homedir()}\\Pictures\\Screenshots\\${fileName}`
+                    }).show();
+                }
             }
         }
     })

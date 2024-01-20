@@ -17,7 +17,7 @@ exports.ocrRenderer = {
         return electron_1.ipcRenderer.invoke('ocr:perform', 'send-receive test');
     },
     tempImageLoc: () => path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'),
-    closeWindow: (error) => electron_1.ipcRenderer.send('window:close', error),
+    closeWindow: (error, escape) => electron_1.ipcRenderer.send('window:close', { error: error, escape: escape }),
     spawnError: (message) => electron_1.ipcRenderer.send('window:error', message),
     loadConfig: () => electron_1.ipcRenderer.invoke('config:load'),
     saveConfig: (shortcut, ss, notepad) => electron_1.ipcRenderer.invoke('config:save', { shortcut: shortcut, ss: ss, notepad: notepad }),

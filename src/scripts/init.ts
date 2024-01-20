@@ -81,7 +81,7 @@ function move_rectangle(e: MouseEvent, draw: HTMLDivElement): void {
     clipPath.replaceChild(closeIconPath, clipPath.childNodes[1]);
 }
 
-function close_window(err:string = "") {
+function close_window(err: string = "", esc: boolean = false) {
     prompt_popup.style.top = '-5rem';
     overlay.classList.toggle("opacity-0");
     draw.classList.toggle('opacity-0');
@@ -92,7 +92,7 @@ function close_window(err:string = "") {
 
     setTimeout(() => {
         // @ts-expect-error
-        window.ocrRenderer.closeWindow(err);
+        window.ocrRenderer.closeWindow(err, esc);
     }, 550);
 }
 

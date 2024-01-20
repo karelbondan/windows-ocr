@@ -1,6 +1,7 @@
 screenshot_bt.onclick = async function (e) {
     e.preventDefault();
     if (draw.offsetWidth > 10 && draw.offsetHeight > 10) {
+        window.onkeydown = null;
         const img = document.getElementById("source_img") as HTMLImageElement;
         const normalise = img.naturalWidth / listener.clientWidth // < this the most important shit lol 
 
@@ -49,5 +50,5 @@ enter_bt.onsubmit = function () {
 
 window.onkeydown = function (e) {
     if (e.key === "Enter") screenshot_bt.click()
-    if (e.key === "Escape") close_window();
+    if (e.key === "Escape") close_window('', true);
 };
