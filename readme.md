@@ -20,8 +20,8 @@ This is a fun project I did on my spare time. It was made to fulfill the need of
 
 - Press `Ctrl+Shift+Alt+T` to launch the OCR.
 
-- Default shortcut and some other options can be set in the app's settings page.
-  > Please be wise on choosing a key combination. An overlapping key combination will overwrite any behavior that's registered in the OS (e.g `Ctrl+C` will disable copy, and will launch the OCR instead)
+- Default shortcut and some other options can be set in the app's settings page. All settings are saved into a `config.json` file which will be auto generated inside the app's directory on first run.
+  > Please be wise on choosing a key combination. An overlapping key combination will overwrite any behavior that's registered in the OS (e.g `Ctrl+C` will disable copy and launch the OCR instead)
 
 - The capture box can be moved <br><br>
 <img src="https://lh3.googleusercontent.com/u/4/drive-viewer/AEYmBYQzGQ0xX2ytssDuYwjkTxDY9ENmhj6UKsTQvCygplVF6ZHW3RISvah_R9-LJAgBIfGdgY7gfdtLcxvblCpMvDCmN9zAWQ=w1920-h868" width="400">
@@ -29,6 +29,12 @@ This is a fun project I did on my spare time. It was made to fulfill the need of
 - The `Enter` key can be pressed to perform OCR after the capture box has been drawn. The `Esc` key can be pressed to cancel/close the OCR window.
 
 ## Setting up
+
+### Installing the app
+
+**Please unzip/install this app into a directory that does not require elevated permissions (administrator rights) since the file modification permission is required while the app is active (config.json modification upon settings change).** Avoid unzipping/installing to `C:\Program Files` or `C:\Program Files (x86)` as they require elevated permissions for third party apps to access.
+
+### Google Cloud project set-up
 
 As mentioned above, this app uses Google Vision API. Don't worry, **unless you're performing more than 1000 OCRs per month, you won't be charged anything**. If you're still not sure, you can [check this article](https://cloud.google.com/vision/pricing#prices) under the "Document Text Detection" row to review Google's latest policy for Vision API's usage and pricing. Please bear with me with this scuffed guide.
 
