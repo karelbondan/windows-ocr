@@ -15,7 +15,7 @@ let mainWindow: {
 } | null = { win: null, tray: null, icons: null };
 let screenshotWindow: BrowserWindow | null;
 let aboutWindow: BrowserWindow | null;
-let usrConfig: userConfig = require(path.join(app.getAppPath(), 'config.json'));
+let usrConfig: userConfig
 let fileName: string
 
 const trayIcon = nativeImage.createFromPath(
@@ -25,6 +25,27 @@ const appIcon = nativeImage.createFromPath(
     path.join(__dirname, "../../src/media/icon_color.png")
 ).resize({ width: 50, height: 50 });
 const googleClient = new vision.ImageAnnotatorClient();
+
+function saveConfig(shortcut: string, ss: boolean, notepad: boolean) {
+    const kb_shortcut = shortcut ? shortcut.trim() : "";
+    fs.writeFileSync(path.join(process.cwd(), 'config.json'), JSON.stringify({
+        keyboardShortcut: kb_shortcut,
+        saveAsScreenshot: ss,
+        openNotepad: notepad
+    }));
+}
+
+function loadConfig() {
+    return JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json'),
+        { encoding: 'utf8', flag: 'r' }));
+}
+
+try {
+    usrConfig = loadConfig();
+} catch (error) {
+    saveConfig("Control + Shift + Alt + T", false, false);
+    usrConfig = loadConfig();
+}
 
 function createMainWindow() {
     mainWindow!.win = new BrowserWindow({
@@ -149,10 +170,22 @@ function createErrorDialog(title: string, body: string) {
     app.exit(1);
 }
 
-function registerShortcut(config: userConfig) {
+function createWarningDialog(title: string, body: string) {
+    dialog.showMessageBoxSync({
+        type: "warning",
+        title: title,
+        message: body
+    })
+}
+
+function registerShortcut(config: userConfig): { success: boolean, reason: string } {
     globalShortcut.unregisterAll();
-    const kbdTrigger = globalShortcut.register(
-        config.keyboardShortcut.replace(/\s/g, ''), () => {
+    let kbdTrigger: boolean;
+
+    console.log(config.keyboardShortcut);
+
+    if (config.keyboardShortcut !== "") {
+        kbdTrigger = globalShortcut.register(config.keyboardShortcut.replace(/\s/g, ''), () => {
             if (!screenshotWindow) {
                 console.log("OCR capture initiated");
                 createScreenshotWindow();
@@ -162,45 +195,65 @@ function registerShortcut(config: userConfig) {
             }
         })
 
-    if (!kbdTrigger)
-        console.log("Global shortcut registration failed");
-    else
-        console.log("Global shortcut registration success");
+        if (!kbdTrigger) {
+            console.log("Global shortcut registration failed");
+            return { success: false, reason: "reg_failed" }
+        } else {
+            console.log("Global shortcut registration success");
+            return { success: true, reason: "" }
+        }
+    }
+
+    return { success: false, reason: "empty" }
 }
 
 app.whenReady().then(async () => {
-    if (fs.existsSync(path.join(app.getAppPath(), 'credentials.json')))
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(app.getAppPath(), 'credentials.json');
+    if (fs.existsSync(path.join(process.cwd(), 'credentials.json')))
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(process.cwd(), 'credentials.json');
     else {
         createErrorDialog(
             "Windows OCR",
-            "Cannot find 'credentials.json' inside the application's directory. Please follow the initial setup process at the GitHub repository if you have not already."
+            "Cannot find 'credentials.json' inside the application's directory. Please follow "
+            + "the initial setup process at the GitHub repository if you have not already."
         )
     }
 
     ipcMain.handle('ocr:perform', async (event, message) => {
         if (usrConfig.saveAsScreenshot) {
             const today = new Date();
-            fileName = `Screenshot_${today.toJSON().slice(0, 10).replace(/\-/g, '')}_${today.toString().split(' ')[4].replace(/\:/g, '')}.png`
-            fs.copyFileSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'), path.join(os.homedir(), 'Pictures', 'Screenshots', fileName));
+            fileName = "Screenshot_"
+                + today.toJSON().slice(0, 10).replace(/\-/g, '')
+                + "_"
+                + today.toString().split(' ')[4].replace(/\:/g, '')
+                + ".png";
+            fs.copyFileSync(
+                path.join(os.tmpdir(), 'WindowsOCRCrop.png'),
+                path.join(os.homedir(), 'Pictures', 'Screenshots', fileName
+                ));
         }
         return googleClient.documentTextDetection(path.join(os.tmpdir(), 'WindowsOCRCrop.png'));
         // return await new Promise(resolve => setTimeout(() => resolve('delay'), 3000));
     })
 
     ipcMain.handle('config:load', (event, message) => {
-        return JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'config.json'), { encoding: 'utf8', flag: 'r' }))
+        return loadConfig();
     })
 
-    ipcMain.handle('config:save', (event, message) => {
-        fs.writeFileSync(path.join(app.getAppPath(), 'config.json'), JSON.stringify({
-            keyboardShortcut: message.shortcut,
-            saveAsScreenshot: message.ss,
-            openNotepad: message.notepad
-        }));
+    ipcMain.handle('config:save', (event, config: {
+        shortcut: string, ss: boolean, notepad: boolean
+    }) => {
+        saveConfig(config.shortcut, config.ss, config.notepad);
 
-        usrConfig = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'config.json'), { encoding: 'utf8', flag: 'r' }))
-        registerShortcut(usrConfig);
+        usrConfig = loadConfig();
+
+        const regUpdateSuccess = registerShortcut(usrConfig);
+        if (!regUpdateSuccess.reason && regUpdateSuccess.reason === "reg_failed") {
+            createWarningDialog(
+                "Windows OCR",
+                "Failed to register a global shortcut to launch the OCR window. "
+                + "You can restart the app to re-apply the updated configuration."
+            )
+        }
 
         new Notification({
             icon: appIcon,
@@ -216,12 +269,14 @@ app.whenReady().then(async () => {
             if (!args.escape) {
                 if (usrConfig.openNotepad)
                     if (process.platform === 'win32')
-                        spawnObj.spawn("C:\\Windows\\notepad.exe", [path.join(os.tmpdir(), 'WindowsOCRResult.txt')]);
+                        spawnObj.spawn("C:\\Windows\\notepad.exe",
+                            [path.join(os.tmpdir(), 'WindowsOCRResult.txt')]);
                 if (usrConfig.saveAsScreenshot) {
                     new Notification({
                         icon: appIcon,
                         title: "Screenshot saved",
-                        body: `Screenshot was saved in ${os.homedir()}\\Pictures\\Screenshots\\${fileName}`
+                        body: "Screenshot was saved in "
+                            + os.homedir() + "\\Pictures\\Screenshots\\" + fileName
                     }).show();
                 }
             }
@@ -235,7 +290,7 @@ app.whenReady().then(async () => {
         )
     })
 
-    registerShortcut(usrConfig);
+    const shortcutRegSuccess = registerShortcut(usrConfig);
 
     if (process.platform === 'win32')
         app.setAppUserModelId("Windows OCR");
@@ -247,11 +302,29 @@ app.whenReady().then(async () => {
             createMainWindow();
     })
 
-    new Notification({
-        icon: appIcon,
-        title: "Minimised to tray",
-        body: `App has been minimised to tray. Press ${usrConfig.keyboardShortcut.replace(/\s/g, '')} to launch the OCR`
-    }).show();
+    if (!shortcutRegSuccess.success && shortcutRegSuccess.reason === "reg_failed") {
+        createWarningDialog(
+            "Windows OCR",
+            "Failed to register a global shortcut to launch the OCR window. "
+            + "You can restart the app to re-apply the updated configuration."
+        )
+    }
+
+    if (!shortcutRegSuccess.success) {
+        new Notification({
+            icon: appIcon,
+            title: "Minimised to tray",
+            body: "App has been minimised to tray. You can launch the OCR window "
+                + "by right clicking the app's icon on the tray"
+        }).show();
+    } else {
+        new Notification({
+            icon: appIcon,
+            title: "Minimised to tray",
+            body: "App has been minimised to tray. Press "
+                + usrConfig.keyboardShortcut.replace(/\s/g, '') + " to launch the OCR"
+        }).show();
+    }
 })
 
 app.on("before-quit", ev => {

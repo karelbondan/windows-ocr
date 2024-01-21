@@ -21,11 +21,29 @@ const child_process_1 = __importDefault(require("child_process"));
 let mainWindow = { win: null, tray: null, icons: null };
 let screenshotWindow;
 let aboutWindow;
-let usrConfig = require(path_1.default.join(electron_1.app.getAppPath(), 'config.json'));
+let usrConfig;
 let fileName;
 const trayIcon = electron_1.nativeImage.createFromPath(path_1.default.join(__dirname, "../../src/media/icon_tray.png")).resize({ width: 16, height: 16 });
 const appIcon = electron_1.nativeImage.createFromPath(path_1.default.join(__dirname, "../../src/media/icon_color.png")).resize({ width: 50, height: 50 });
 const googleClient = new vision_1.default.ImageAnnotatorClient();
+function saveConfig(shortcut, ss, notepad) {
+    const kb_shortcut = shortcut ? shortcut.trim() : "";
+    fs_1.default.writeFileSync(path_1.default.join(process.cwd(), 'config.json'), JSON.stringify({
+        keyboardShortcut: kb_shortcut,
+        saveAsScreenshot: ss,
+        openNotepad: notepad
+    }));
+}
+function loadConfig() {
+    return JSON.parse(fs_1.default.readFileSync(path_1.default.join(process.cwd(), 'config.json'), { encoding: 'utf8', flag: 'r' }));
+}
+try {
+    usrConfig = loadConfig();
+}
+catch (error) {
+    saveConfig("Control + Shift + Alt + T", false, false);
+    usrConfig = loadConfig();
+}
 function createMainWindow() {
     mainWindow.win = new electron_1.BrowserWindow({
         width: 800, height: 600, minimizable: false, show: false,
@@ -140,49 +158,70 @@ function createErrorDialog(title, body) {
     });
     electron_1.app.exit(1);
 }
+function createWarningDialog(title, body) {
+    electron_1.dialog.showMessageBoxSync({
+        type: "warning",
+        title: title,
+        message: body
+    });
+}
 function registerShortcut(config) {
     electron_1.globalShortcut.unregisterAll();
-    const kbdTrigger = electron_1.globalShortcut.register(config.keyboardShortcut.replace(/\s/g, ''), () => {
-        if (!screenshotWindow) {
-            console.log("OCR capture initiated");
-            createScreenshotWindow();
+    let kbdTrigger;
+    console.log(config.keyboardShortcut);
+    if (config.keyboardShortcut !== "") {
+        kbdTrigger = electron_1.globalShortcut.register(config.keyboardShortcut.replace(/\s/g, ''), () => {
+            if (!screenshotWindow) {
+                console.log("OCR capture initiated");
+                createScreenshotWindow();
+            }
+            else {
+                console.log("OCR window already opened");
+                screenshotWindow.focus();
+            }
+        });
+        if (!kbdTrigger) {
+            console.log("Global shortcut registration failed");
+            return { success: false, reason: "reg_failed" };
         }
         else {
-            console.log("OCR window already opened");
-            screenshotWindow.focus();
+            console.log("Global shortcut registration success");
+            return { success: true, reason: "" };
         }
-    });
-    if (!kbdTrigger)
-        console.log("Global shortcut registration failed");
-    else
-        console.log("Global shortcut registration success");
+    }
+    return { success: false, reason: "empty" };
 }
 electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function* () {
-    if (fs_1.default.existsSync(path_1.default.join(electron_1.app.getAppPath(), 'credentials.json')))
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = path_1.default.join(electron_1.app.getAppPath(), 'credentials.json');
+    if (fs_1.default.existsSync(path_1.default.join(process.cwd(), 'credentials.json')))
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = path_1.default.join(process.cwd(), 'credentials.json');
     else {
-        createErrorDialog("Windows OCR", "Cannot find 'credentials.json' inside the application's directory. Please follow the initial setup process at the GitHub repository if you have not already.");
+        createErrorDialog("Windows OCR", "Cannot find 'credentials.json' inside the application's directory. Please follow "
+            + "the initial setup process at the GitHub repository if you have not already.");
     }
     electron_1.ipcMain.handle('ocr:perform', (event, message) => __awaiter(void 0, void 0, void 0, function* () {
         if (usrConfig.saveAsScreenshot) {
             const today = new Date();
-            fileName = `Screenshot_${today.toJSON().slice(0, 10).replace(/\-/g, '')}_${today.toString().split(' ')[4].replace(/\:/g, '')}.png`;
+            fileName = "Screenshot_"
+                + today.toJSON().slice(0, 10).replace(/\-/g, '')
+                + "_"
+                + today.toString().split(' ')[4].replace(/\:/g, '')
+                + ".png";
             fs_1.default.copyFileSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRCrop.png'), path_1.default.join(os_1.default.homedir(), 'Pictures', 'Screenshots', fileName));
         }
         return googleClient.documentTextDetection(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRCrop.png'));
         // return await new Promise(resolve => setTimeout(() => resolve('delay'), 3000));
     }));
     electron_1.ipcMain.handle('config:load', (event, message) => {
-        return JSON.parse(fs_1.default.readFileSync(path_1.default.join(electron_1.app.getAppPath(), 'config.json'), { encoding: 'utf8', flag: 'r' }));
+        return loadConfig();
     });
-    electron_1.ipcMain.handle('config:save', (event, message) => {
-        fs_1.default.writeFileSync(path_1.default.join(electron_1.app.getAppPath(), 'config.json'), JSON.stringify({
-            keyboardShortcut: message.shortcut,
-            saveAsScreenshot: message.ss,
-            openNotepad: message.notepad
-        }));
-        usrConfig = JSON.parse(fs_1.default.readFileSync(path_1.default.join(electron_1.app.getAppPath(), 'config.json'), { encoding: 'utf8', flag: 'r' }));
-        registerShortcut(usrConfig);
+    electron_1.ipcMain.handle('config:save', (event, config) => {
+        saveConfig(config.shortcut, config.ss, config.notepad);
+        usrConfig = loadConfig();
+        const regUpdateSuccess = registerShortcut(usrConfig);
+        if (!regUpdateSuccess.reason && regUpdateSuccess.reason === "reg_failed") {
+            createWarningDialog("Windows OCR", "Failed to register a global shortcut to launch the OCR window. "
+                + "You can restart the app to re-apply the updated configuration.");
+        }
         new electron_1.Notification({
             icon: appIcon,
             title: "Saved successfully",
@@ -201,7 +240,8 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
                     new electron_1.Notification({
                         icon: appIcon,
                         title: "Screenshot saved",
-                        body: `Screenshot was saved in ${os_1.default.homedir()}\\Pictures\\Screenshots\\${fileName}`
+                        body: "Screenshot was saved in "
+                            + os_1.default.homedir() + "\\Pictures\\Screenshots\\" + fileName
                     }).show();
                 }
             }
@@ -210,7 +250,7 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     electron_1.ipcMain.on('window:error', (event, message) => {
         createErrorDialog("Windows OCR", message);
     });
-    registerShortcut(usrConfig);
+    const shortcutRegSuccess = registerShortcut(usrConfig);
     if (process.platform === 'win32')
         electron_1.app.setAppUserModelId("Windows OCR");
     createMainWindow();
@@ -218,11 +258,26 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         if (electron_1.BrowserWindow.getAllWindows().length === 0)
             createMainWindow();
     });
-    new electron_1.Notification({
-        icon: appIcon,
-        title: "Minimised to tray",
-        body: `App has been minimised to tray. Press ${usrConfig.keyboardShortcut.replace(/\s/g, '')} to launch the OCR`
-    }).show();
+    if (!shortcutRegSuccess.success && shortcutRegSuccess.reason === "reg_failed") {
+        createWarningDialog("Windows OCR", "Failed to register a global shortcut to launch the OCR window. "
+            + "You can restart the app to re-apply the updated configuration.");
+    }
+    if (!shortcutRegSuccess.success) {
+        new electron_1.Notification({
+            icon: appIcon,
+            title: "Minimised to tray",
+            body: "App has been minimised to tray. You can launch the OCR window "
+                + "by right clicking the app's icon on the tray"
+        }).show();
+    }
+    else {
+        new electron_1.Notification({
+            icon: appIcon,
+            title: "Minimised to tray",
+            body: "App has been minimised to tray. Press "
+                + usrConfig.keyboardShortcut.replace(/\s/g, '') + " to launch the OCR"
+        }).show();
+    }
 }));
 electron_1.app.on("before-quit", ev => {
     electron_1.globalShortcut.unregisterAll();
