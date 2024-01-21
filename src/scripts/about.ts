@@ -82,7 +82,8 @@ reset_settings_bt.onclick = function (e) {
 
 kb_shortcut.onkeydown = function (e) {
     e.preventDefault();
-    const disallowed = ["enter", "capslock", "tab"]
+    const disallowed = ["enter", "capslock", "tab", ' ']
+    console.log(e.key);
     const inpStr = kb_shortcut.value;
     if (!disallowed.includes(e.key)) {
         if (e.key.toLowerCase() === "backspace") {
