@@ -13,7 +13,7 @@ let mainWindow: {
     tray: Tray | null,
     icons: BrowserWindow | null
 } | null = { win: null, tray: null, icons: null };
-let screenshotWindow: BrowserWindow | null;
+let screenshotWindows: { [key: string]: BrowserWindow } = {};
 let aboutWindow: BrowserWindow | null;
 let usrConfig: userConfig
 let fileName: string
@@ -25,6 +25,18 @@ const appIcon = nativeImage.createFromPath(
     path.join(__dirname, "../../src/media/icon_color.png")
 ).resize({ width: 50, height: 50 });
 const googleClient = new vision.ImageAnnotatorClient();
+
+// utils
+function _getWindowsKeys() {
+    return Object.keys(screenshotWindows);
+}
+
+function _focusWindow(keys: string[]) {
+    for (const displayID of keys) {
+        screenshotWindows[displayID].focus();
+    }
+}
+
 
 function saveConfig(shortcut: string, ss: boolean, notepad: boolean) {
     const kb_shortcut = shortcut ? shortcut.trim() : "";
@@ -68,10 +80,13 @@ function createMainWindow() {
         {
             label: "Launch",
             click: (item, window, event) => {
-                if (!screenshotWindow)
+                const windows = _getWindowsKeys();
+                if (windows.length < 1) {
                     createScreenshotWindow();
-                else
-                    screenshotWindow.focus();
+                } else {
+                    _focusWindow(windows);
+                }
+                // screenshotWindow.focus();
             }
         },
         {
@@ -91,53 +106,62 @@ function createMainWindow() {
 }
 
 async function createScreenshotWindow() {
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const { width, height } = primaryDisplay.size;
-    const factor = primaryDisplay.scaleFactor;
+    const displays = screen.getAllDisplays();
+    const bounds = displays.map(display => display.bounds);
+
+    // get max res of displays to output the best resolution.
+    // desktopCapturer will adjust the width/height accordingly
+    // if the value exceeds one of them. 
+    const maxRes = bounds.reduce((max, curr) => {
+        const currMax = Math.max(curr.height, curr.width);
+        return Math.max(max, currMax);
+    }, 0);
 
     await desktopCapturer.getSources({
         types: ['screen'],
-        thumbnailSize: {
-            width: width * factor, height: height * factor
-        }
+        thumbnailSize: { width: maxRes, height: maxRes }
     }).then(async sources => {
         for (const source of sources) {
             if (source) {
                 fs.writeFileSync(
-                    path.join(os.tmpdir(), 'WindowsOCR.png'),
+                    // path.join(os.tmpdir(), 'WindowsOCR.png'),
+                    path.join(os.tmpdir(), `ocr-temp-${source.display_id}.png`),
                     source.thumbnail.toPNG()
                 );
-                return
             }
         }
-    }).catch(e => console.log(e))
+    }).catch(e => console.log(e));
 
-    screenshotWindow = new BrowserWindow({
-        width: 1, height: 1, frame: false, show: false, transparent: true,
-        webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: true,
-            preload: path.join(__dirname, 'preload.js')
-        },
-        minimizable: false, resizable: false, icon: appIcon
-    });
+    for (const display of displays) {
+        const displayID = String(display.id);
+        let SSWindow = new BrowserWindow({
+            width: display.bounds.width, height: display.bounds.height, frame: false,
+            show: false, transparent: true, x: display.bounds.x, y: display.bounds.y,
+            webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: true,
+                preload: path.join(__dirname, 'preload.js')
+            },
+            minimizable: false, resizable: false, icon: appIcon
+        });
 
-    screenshotWindow.setMenuBarVisibility(false);
-    screenshotWindow.setIcon(appIcon);
-    screenshotWindow.loadFile(path.join(__dirname, '../../src/site/index.html'))
-    screenshotWindow.once('ready-to-show', () => {
-        screenshotWindow!.setPosition(0, 0);
-        screenshotWindow!.show();
-    })
-    screenshotWindow.webContents.on('did-finish-load', () => {
-        screenshotWindow!.webContents.send("ocr:loadimg");
-    })
-    screenshotWindow.on('close', () => {
-        screenshotWindow = null;
-    })
-    setTimeout(() => {
-        screenshotWindow!.setFullScreen(true);
-    }, 500);
+        SSWindow.setMenuBarVisibility(false);
+        SSWindow.setIcon(appIcon);
+        SSWindow.loadFile(path.join(__dirname, '../../src/site/index.html'))
+        SSWindow.once('ready-to-show', () => {
+            SSWindow!.show();
+        })
+        SSWindow.webContents.on('did-finish-load', () => {
+            SSWindow!.webContents.send("ocr:loadimg", display.id);
+        })
+        SSWindow.on('close', () => {
+            delete screenshotWindows[displayID];
+        })
+        setTimeout(() => {
+            SSWindow!.setFullScreen(true);
+        }, 500);
+        screenshotWindows[displayID] = SSWindow;
+    }
 }
 
 function createAboutWindow() {
@@ -186,12 +210,13 @@ function registerShortcut(config: userConfig): { success: boolean, reason: strin
 
     if (config.keyboardShortcut !== "") {
         kbdTrigger = globalShortcut.register(config.keyboardShortcut.replace(/\s/g, ''), () => {
-            if (!screenshotWindow) {
+            const windows = _getWindowsKeys();
+            if (windows.length < 1) {
                 console.log("OCR capture initiated");
                 createScreenshotWindow();
             } else {
                 console.log("OCR window already opened");
-                screenshotWindow.focus();
+                _focusWindow(windows);
             }
         })
 
@@ -265,7 +290,10 @@ app.whenReady().then(async () => {
 
     ipcMain.on('window:close', (event, args: { error: string, escape: boolean }) => {
         if (args.error === "") {
-            screenshotWindow?.close();
+            // screenshotWindow?.close();
+            Object.entries(screenshotWindows).map(([_, window]) => {
+                window.close();
+            });
             if (!args.escape) {
                 if (usrConfig.openNotepad)
                     if (process.platform === 'win32')
@@ -331,7 +359,7 @@ app.on("before-quit", ev => {
     globalShortcut.unregisterAll()
     mainWindow!.win!.removeAllListeners("close");
     mainWindow = null;
-    screenshotWindow = null;
+    screenshotWindows = {};
     aboutWindow = null;
     fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCR.png'))
     fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'))

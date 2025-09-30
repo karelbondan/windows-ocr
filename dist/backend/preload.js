@@ -9,14 +9,14 @@ const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 exports.ocrRenderer = {
-    loadImage: (callback) => electron_1.ipcRenderer.on('ocr:loadimg', (_event, value) => callback(value)),
+    loadImage: (callback) => electron_1.ipcRenderer.on('ocr:loadimg', (_event, displayID) => callback(displayID)),
     exportImageAndDoOCR: (img) => {
         const imgData = img.replace(/^data:image\/\w+;base64,/, '');
         const imgBuffer = Buffer.from(imgData, 'base64');
         fs_1.default.writeFileSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRCrop.png'), imgBuffer);
         return electron_1.ipcRenderer.invoke('ocr:perform', 'send-receive test');
     },
-    tempImageLoc: () => path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'),
+    tempImageLoc: (displayID) => path_1.default.join(os_1.default.tmpdir(), `ocr-temp-${displayID}.png`),
     closeWindow: (error, escape) => electron_1.ipcRenderer.send('window:close', { error: error, escape: escape }),
     spawnError: (message) => electron_1.ipcRenderer.send('window:error', message),
     loadConfig: () => electron_1.ipcRenderer.invoke('config:load'),

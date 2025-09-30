@@ -4,14 +4,14 @@ import path from 'path';
 import fs from 'fs';
 
 export const ocrRenderer = {
-    loadImage: (callback: (val: any) => {}) => ipcRenderer.on('ocr:loadimg', (_event, value) => callback(value)),
+    loadImage: (callback: (displayID: number) => {}) => ipcRenderer.on('ocr:loadimg', (_event, displayID) => callback(displayID)),
     exportImageAndDoOCR: (img: string) => {
         const imgData = img.replace(/^data:image\/\w+;base64,/, '');
         const imgBuffer = Buffer.from(imgData, 'base64');
         fs.writeFileSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'), imgBuffer);
         return ipcRenderer.invoke('ocr:perform', 'send-receive test');
     },
-    tempImageLoc: () => path.join(os.tmpdir(), 'WindowsOCR.png'),
+    tempImageLoc: (displayID: number) => path.join(os.tmpdir(), `ocr-temp-${displayID}.png`),
     closeWindow: (error: string, escape: boolean) => ipcRenderer.send('window:close', { error: error, escape: escape }),
     spawnError: (message: string) => ipcRenderer.send('window:error', message),
     loadConfig: () => ipcRenderer.invoke('config:load'),

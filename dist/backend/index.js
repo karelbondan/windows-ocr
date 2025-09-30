@@ -19,13 +19,22 @@ const os_1 = __importDefault(require("os"));
 const vision_1 = __importDefault(require("@google-cloud/vision"));
 const child_process_1 = __importDefault(require("child_process"));
 let mainWindow = { win: null, tray: null, icons: null };
-let screenshotWindow;
+let screenshotWindows = {};
 let aboutWindow;
 let usrConfig;
 let fileName;
 const trayIcon = electron_1.nativeImage.createFromPath(path_1.default.join(__dirname, "../../src/media/icon_tray.png")).resize({ width: 16, height: 16 });
 const appIcon = electron_1.nativeImage.createFromPath(path_1.default.join(__dirname, "../../src/media/icon_color.png")).resize({ width: 50, height: 50 });
 const googleClient = new vision_1.default.ImageAnnotatorClient();
+// utils
+function _getWindowsKeys() {
+    return Object.keys(screenshotWindows);
+}
+function _focusWindow(keys) {
+    for (const displayID of keys) {
+        screenshotWindows[displayID].focus();
+    }
+}
 function saveConfig(shortcut, ss, notepad) {
     const kb_shortcut = shortcut ? shortcut.trim() : "";
     fs_1.default.writeFileSync(path_1.default.join(process.cwd(), 'config.json'), JSON.stringify({
@@ -64,10 +73,14 @@ function createMainWindow() {
         {
             label: "Launch",
             click: (item, window, event) => {
-                if (!screenshotWindow)
+                const windows = _getWindowsKeys();
+                if (windows.length < 1) {
                     createScreenshotWindow();
-                else
-                    screenshotWindow.focus();
+                }
+                else {
+                    _focusWindow(windows);
+                }
+                // screenshotWindow.focus();
             }
         },
         {
@@ -87,47 +100,56 @@ function createMainWindow() {
 }
 function createScreenshotWindow() {
     return __awaiter(this, void 0, void 0, function* () {
-        const primaryDisplay = electron_1.screen.getPrimaryDisplay();
-        const { width, height } = primaryDisplay.size;
-        const factor = primaryDisplay.scaleFactor;
+        const displays = electron_1.screen.getAllDisplays();
+        const bounds = displays.map(display => display.bounds);
+        // get max res of displays to output the best resolution.
+        // desktopCapturer will adjust the width/height accordingly
+        // if the value exceeds one of them. 
+        const maxRes = bounds.reduce((max, curr) => {
+            const currMax = Math.max(curr.height, curr.width);
+            return Math.max(max, currMax);
+        }, 0);
         yield electron_1.desktopCapturer.getSources({
             types: ['screen'],
-            thumbnailSize: {
-                width: width * factor, height: height * factor
-            }
+            thumbnailSize: { width: maxRes, height: maxRes }
         }).then((sources) => __awaiter(this, void 0, void 0, function* () {
             for (const source of sources) {
                 if (source) {
-                    fs_1.default.writeFileSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'), source.thumbnail.toPNG());
-                    return;
+                    fs_1.default.writeFileSync(
+                    // path.join(os.tmpdir(), 'WindowsOCR.png'),
+                    path_1.default.join(os_1.default.tmpdir(), `ocr-temp-${source.display_id}.png`), source.thumbnail.toPNG());
                 }
             }
         })).catch(e => console.log(e));
-        screenshotWindow = new electron_1.BrowserWindow({
-            width: 1, height: 1, frame: false, show: false, transparent: true,
-            webPreferences: {
-                contextIsolation: true,
-                nodeIntegration: true,
-                preload: path_1.default.join(__dirname, 'preload.js')
-            },
-            minimizable: false, resizable: false, icon: appIcon
-        });
-        screenshotWindow.setMenuBarVisibility(false);
-        screenshotWindow.setIcon(appIcon);
-        screenshotWindow.loadFile(path_1.default.join(__dirname, '../../src/site/index.html'));
-        screenshotWindow.once('ready-to-show', () => {
-            screenshotWindow.setPosition(0, 0);
-            screenshotWindow.show();
-        });
-        screenshotWindow.webContents.on('did-finish-load', () => {
-            screenshotWindow.webContents.send("ocr:loadimg");
-        });
-        screenshotWindow.on('close', () => {
-            screenshotWindow = null;
-        });
-        setTimeout(() => {
-            screenshotWindow.setFullScreen(true);
-        }, 500);
+        for (const display of displays) {
+            const displayID = String(display.id);
+            let SSWindow = new electron_1.BrowserWindow({
+                width: display.bounds.width, height: display.bounds.height, frame: false,
+                show: false, transparent: true, x: display.bounds.x, y: display.bounds.y,
+                webPreferences: {
+                    contextIsolation: true,
+                    nodeIntegration: true,
+                    preload: path_1.default.join(__dirname, 'preload.js')
+                },
+                minimizable: false, resizable: false, icon: appIcon
+            });
+            SSWindow.setMenuBarVisibility(false);
+            SSWindow.setIcon(appIcon);
+            SSWindow.loadFile(path_1.default.join(__dirname, '../../src/site/index.html'));
+            SSWindow.once('ready-to-show', () => {
+                SSWindow.show();
+            });
+            SSWindow.webContents.on('did-finish-load', () => {
+                SSWindow.webContents.send("ocr:loadimg", display.id);
+            });
+            SSWindow.on('close', () => {
+                delete screenshotWindows[displayID];
+            });
+            setTimeout(() => {
+                SSWindow.setFullScreen(true);
+            }, 500);
+            screenshotWindows[displayID] = SSWindow;
+        }
     });
 }
 function createAboutWindow() {
@@ -171,13 +193,14 @@ function registerShortcut(config) {
     console.log(config.keyboardShortcut);
     if (config.keyboardShortcut !== "") {
         kbdTrigger = electron_1.globalShortcut.register(config.keyboardShortcut.replace(/\s/g, ''), () => {
-            if (!screenshotWindow) {
+            const windows = _getWindowsKeys();
+            if (windows.length < 1) {
                 console.log("OCR capture initiated");
                 createScreenshotWindow();
             }
             else {
                 console.log("OCR window already opened");
-                screenshotWindow.focus();
+                _focusWindow(windows);
             }
         });
         if (!kbdTrigger) {
@@ -231,7 +254,10 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     });
     electron_1.ipcMain.on('window:close', (event, args) => {
         if (args.error === "") {
-            screenshotWindow === null || screenshotWindow === void 0 ? void 0 : screenshotWindow.close();
+            // screenshotWindow?.close();
+            Object.entries(screenshotWindows).map(([_, window]) => {
+                window.close();
+            });
             if (!args.escape) {
                 if (usrConfig.openNotepad)
                     if (process.platform === 'win32')
@@ -283,7 +309,7 @@ electron_1.app.on("before-quit", ev => {
     electron_1.globalShortcut.unregisterAll();
     mainWindow.win.removeAllListeners("close");
     mainWindow = null;
-    screenshotWindow = null;
+    screenshotWindows = {};
     aboutWindow = null;
     fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'));
     fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRCrop.png'));
