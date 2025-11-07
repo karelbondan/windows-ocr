@@ -98,10 +98,48 @@ function createMainWindow() {
     mainWindow.tray.setToolTip("Windows OCR");
     mainWindow.tray.setContextMenu(menu);
 }
+function makeScreenshotWindow(display, ocrTempID) {
+    const displayID = String(display.id);
+    let SSWindow = new electron_1.BrowserWindow({
+        width: display.bounds.width, height: display.bounds.height, frame: false,
+        show: false, transparent: true, x: display.bounds.x, y: display.bounds.y,
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: true,
+            preload: path_1.default.join(__dirname, 'preload.js')
+        },
+        minimizable: false, resizable: false, icon: appIcon
+    });
+    SSWindow.setMenuBarVisibility(false);
+    SSWindow.setIcon(appIcon);
+    SSWindow.loadFile(path_1.default.join(__dirname, '../../src/site/index.html'));
+    SSWindow.once('ready-to-show', () => {
+        SSWindow.show();
+    });
+    SSWindow.webContents.on('did-finish-load', () => {
+        SSWindow.webContents.send("ocr:loadimg", ocrTempID);
+    });
+    SSWindow.on('close', () => {
+        delete screenshotWindows[displayID];
+    });
+    setTimeout(() => {
+        SSWindow.setFullScreen(true);
+    }, 500);
+    screenshotWindows[displayID] = SSWindow;
+}
+class Source {
+    constructor({ id = "", display_id = "", }) {
+        this.id = id;
+        this.display_id = display_id;
+    }
+}
 function createScreenshotWindow() {
     return __awaiter(this, void 0, void 0, function* () {
         const displays = electron_1.screen.getAllDisplays();
         const bounds = displays.map(display => display.bounds);
+        // current workaround for display_id being an empty string in 
+        // wayland (linux) -> tested on debian 13
+        const sourceData = {};
         // get max res of displays to output the best resolution.
         // desktopCapturer will adjust the width/height accordingly
         // if the value exceeds one of them. 
@@ -115,40 +153,23 @@ function createScreenshotWindow() {
         }).then((sources) => __awaiter(this, void 0, void 0, function* () {
             for (const source of sources) {
                 if (source) {
-                    fs_1.default.writeFileSync(
-                    // path.join(os.tmpdir(), 'WindowsOCR.png'),
-                    path_1.default.join(os_1.default.tmpdir(), `ocr-temp-${source.display_id}.png`), source.thumbnail.toPNG());
+                    const { display_id, id } = source;
+                    // sub by 1 since display number starts from 1. use it as the 
+                    // identifier for the source data afterwards
+                    const displayNum = parseInt(/(?<=screen:)\d+/g.exec(id)[0]) - 1;
+                    sourceData[displayNum] = new Source({ display_id, id });
+                    fs_1.default.writeFileSync(path_1.default.join(os_1.default.tmpdir(), `ocr-temp-${source.display_id}.png`), source.thumbnail.toPNG());
                 }
             }
         })).catch(e => console.log(e));
-        for (const display of displays) {
-            const displayID = String(display.id);
-            let SSWindow = new electron_1.BrowserWindow({
-                width: display.bounds.width, height: display.bounds.height, frame: false,
-                show: false, transparent: true, x: display.bounds.x, y: display.bounds.y,
-                webPreferences: {
-                    contextIsolation: true,
-                    nodeIntegration: true,
-                    preload: path_1.default.join(__dirname, 'preload.js')
-                },
-                minimizable: false, resizable: false, icon: appIcon
-            });
-            SSWindow.setMenuBarVisibility(false);
-            SSWindow.setIcon(appIcon);
-            SSWindow.loadFile(path_1.default.join(__dirname, '../../src/site/index.html'));
-            SSWindow.once('ready-to-show', () => {
-                SSWindow.show();
-            });
-            SSWindow.webContents.on('did-finish-load', () => {
-                SSWindow.webContents.send("ocr:loadimg", display.id);
-            });
-            SSWindow.on('close', () => {
-                delete screenshotWindows[displayID];
-            });
-            setTimeout(() => {
-                SSWindow.setFullScreen(true);
-            }, 500);
-            screenshotWindows[displayID] = SSWindow;
+        const sourceEntries = Object.entries(sourceData);
+        if (sourceEntries.length === 1) {
+            const [displayNum, data] = sourceEntries[0];
+            const display = displays[parseInt(displayNum)];
+            return makeScreenshotWindow(display, data.display_id);
+        }
+        for (const [index, display] of displays.entries()) {
+            makeScreenshotWindow(display, sourceData[index].display_id);
         }
     });
 }

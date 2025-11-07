@@ -1,6 +1,7 @@
 import {
     app, BrowserWindow, ipcMain, screen, desktopCapturer, globalShortcut,
-    Tray, Menu, nativeImage, Notification, dialog
+    Tray, Menu, nativeImage, Notification, dialog,
+    Display
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -105,9 +106,59 @@ function createMainWindow() {
     mainWindow!.tray.setContextMenu(menu);
 }
 
+function makeScreenshotWindow(display: Display, ocrTempID: string) {
+    const displayID = String(display.id);
+    let SSWindow = new BrowserWindow({
+        width: display.bounds.width, height: display.bounds.height, frame: false,
+        show: false, transparent: true, x: display.bounds.x, y: display.bounds.y,
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: true,
+            preload: path.join(__dirname, 'preload.js')
+        },
+        minimizable: false, resizable: false, icon: appIcon
+    });
+
+    SSWindow.setMenuBarVisibility(false);
+    SSWindow.setIcon(appIcon);
+    SSWindow.loadFile(path.join(__dirname, '../../src/site/index.html'))
+    SSWindow.once('ready-to-show', () => {
+        SSWindow!.show();
+    })
+    SSWindow.webContents.on('did-finish-load', () => {
+        SSWindow!.webContents.send("ocr:loadimg", ocrTempID);
+    })
+    SSWindow.on('close', () => {
+        delete screenshotWindows[displayID];
+    })
+    setTimeout(() => {
+        SSWindow!.setFullScreen(true);
+    }, 500);
+    screenshotWindows[displayID] = SSWindow;
+}
+
+class Source {
+    id: string; display_id: string;
+    constructor({
+        id = "",
+        display_id = "",
+    }) {
+        this.id = id;
+        this.display_id = display_id;
+    }
+}
+
+type SourceData = {
+    [key: string]: Source;
+}
+
 async function createScreenshotWindow() {
     const displays = screen.getAllDisplays();
     const bounds = displays.map(display => display.bounds);
+
+    // current workaround for display_id being an empty string in 
+    // wayland (linux) -> tested on debian 13
+    const sourceData: SourceData = {};
 
     // get max res of displays to output the best resolution.
     // desktopCapturer will adjust the width/height accordingly
@@ -123,8 +174,12 @@ async function createScreenshotWindow() {
     }).then(async sources => {
         for (const source of sources) {
             if (source) {
+                const { display_id, id } = source;
+                // sub by 1 since display number starts from 1. use it as the 
+                // identifier for the source data afterwards
+                const displayNum = parseInt(/(?<=screen:)\d+/g.exec(id)![0]) - 1;
+                sourceData[displayNum] = new Source({ display_id, id });
                 fs.writeFileSync(
-                    // path.join(os.tmpdir(), 'WindowsOCR.png'),
                     path.join(os.tmpdir(), `ocr-temp-${source.display_id}.png`),
                     source.thumbnail.toPNG()
                 );
@@ -132,35 +187,15 @@ async function createScreenshotWindow() {
         }
     }).catch(e => console.log(e));
 
-    for (const display of displays) {
-        const displayID = String(display.id);
-        let SSWindow = new BrowserWindow({
-            width: display.bounds.width, height: display.bounds.height, frame: false,
-            show: false, transparent: true, x: display.bounds.x, y: display.bounds.y,
-            webPreferences: {
-                contextIsolation: true,
-                nodeIntegration: true,
-                preload: path.join(__dirname, 'preload.js')
-            },
-            minimizable: false, resizable: false, icon: appIcon
-        });
+    const sourceEntries = Object.entries(sourceData);
+    if (sourceEntries.length === 1) {
+        const [displayNum, data] = sourceEntries[0];
+        const display = displays[parseInt(displayNum)];
+        return makeScreenshotWindow(display, data.display_id);
+    }
 
-        SSWindow.setMenuBarVisibility(false);
-        SSWindow.setIcon(appIcon);
-        SSWindow.loadFile(path.join(__dirname, '../../src/site/index.html'))
-        SSWindow.once('ready-to-show', () => {
-            SSWindow!.show();
-        })
-        SSWindow.webContents.on('did-finish-load', () => {
-            SSWindow!.webContents.send("ocr:loadimg", display.id);
-        })
-        SSWindow.on('close', () => {
-            delete screenshotWindows[displayID];
-        })
-        setTimeout(() => {
-            SSWindow!.setFullScreen(true);
-        }, 500);
-        screenshotWindows[displayID] = SSWindow;
+    for (const [index, display] of displays.entries()) {
+        makeScreenshotWindow(display, sourceData[index].display_id);
     }
 }
 
