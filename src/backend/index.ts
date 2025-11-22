@@ -155,10 +155,29 @@ type SourceData = {
 async function createScreenshotWindow() {
     const displays = screen.getAllDisplays();
     const bounds = displays.map(display => display.bounds);
-
     // current workaround for display_id being an empty string in 
     // wayland (linux) -> tested on debian 13
     const sourceData: SourceData = {};
+    // another workaround on top of a workaround since 
+    // the last workaround is inconsistent (thanks wayland)
+    const displaysMapping: { [key: string]: Display[] } = {};
+
+    for (const display of displays) {
+        const key = `w${display.bounds.width}h${display.bounds.height}`;
+        let actualKey = display.id;
+        // if display id is in 64 bit format "convert" it to 32 bit
+        if (display.id > 2147483647) {
+            // thanks https://github.com/electron/electron/issues/27732#issuecomment-2624067582
+            actualKey = ((display.id / 0x10) & 0xfffffff) * 0x10 + (display.id & 0xf);
+        }
+        if (displaysMapping[key]) {
+            displaysMapping[key].push(display);
+        } else {
+            displaysMapping[key] = [display];
+        }
+        // also append the actual key 
+        displaysMapping[actualKey] = [display];
+    }
 
     // get max res of displays to output the best resolution.
     // desktopCapturer will adjust the width/height accordingly
@@ -175,10 +194,14 @@ async function createScreenshotWindow() {
         for (const source of sources) {
             if (source) {
                 const { display_id, id } = source;
-                // sub by 1 since display number starts from 1. use it as the 
-                // identifier for the source data afterwards
-                const displayNum = parseInt(/(?<=screen:)\d+/g.exec(id)![0]) - 1;
-                sourceData[displayNum] = new Source({ display_id, id });
+                const size = source.thumbnail.getSize();
+                // default the key to the screen size
+                let key = `w${size.width}h${size.height}`;
+                // if display_id isn't '' or undefined then assign it as the key
+                if (display_id) {
+                    key = display_id;
+                }
+                sourceData[key] = new Source({ display_id, id });
                 fs.writeFileSync(
                     path.join(os.tmpdir(), `ocr-temp-${source.display_id}.png`),
                     source.thumbnail.toPNG()
@@ -187,16 +210,13 @@ async function createScreenshotWindow() {
         }
     }).catch(e => console.log(e));
 
+    // all this just to stop wayland from breaking everything very fun
     const sourceEntries = Object.entries(sourceData);
-    if (sourceEntries.length === 1) {
-        const [displayNum, data] = sourceEntries[0];
-        const display = displays[parseInt(displayNum)];
-        return makeScreenshotWindow(display, data.display_id);
-    }
-
-    for (const [index, display] of displays.entries()) {
-        makeScreenshotWindow(display, sourceData[index].display_id);
-    }
+    sourceEntries.forEach((entry, idx) => {
+        const [key, data] = entry;
+        const display = displaysMapping[key];
+        makeScreenshotWindow(display[idx % display.length], data.display_id);
+    });
 }
 
 function createAboutWindow() {
@@ -396,9 +416,13 @@ app.on("before-quit", ev => {
     mainWindow = null;
     screenshotWindows = {};
     aboutWindow = null;
-    fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCR.png'))
-    fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'))
-    fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRResult.txt'))
+    try {
+        fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCR.png'))
+        fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'))
+        fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRResult.txt'))
+    } catch (error) {
+        console.log("Temp file(s) not found, ignoring. ", String(error));
+    }
 });
 
 app.on('window-all-closed', () => {

@@ -140,6 +140,26 @@ function createScreenshotWindow() {
         // current workaround for display_id being an empty string in 
         // wayland (linux) -> tested on debian 13
         const sourceData = {};
+        // another workaround on top of a workaround since 
+        // the last workaround is inconsistent (thanks wayland)
+        const displaysMapping = {};
+        for (const display of displays) {
+            const key = `w${display.bounds.width}h${display.bounds.height}`;
+            let actualKey = display.id;
+            // if display id is in 64 bit format "convert" it to 32 bit
+            if (display.id > 2147483647) {
+                // thanks https://github.com/electron/electron/issues/27732#issuecomment-2624067582
+                actualKey = ((display.id / 0x10) & 0xfffffff) * 0x10 + (display.id & 0xf);
+            }
+            if (displaysMapping[key]) {
+                displaysMapping[key].push(display);
+            }
+            else {
+                displaysMapping[key] = [display];
+            }
+            // also append the actual key 
+            displaysMapping[actualKey] = [display];
+        }
         // get max res of displays to output the best resolution.
         // desktopCapturer will adjust the width/height accordingly
         // if the value exceeds one of them. 
@@ -154,23 +174,25 @@ function createScreenshotWindow() {
             for (const source of sources) {
                 if (source) {
                     const { display_id, id } = source;
-                    // sub by 1 since display number starts from 1. use it as the 
-                    // identifier for the source data afterwards
-                    const displayNum = parseInt(/(?<=screen:)\d+/g.exec(id)[0]) - 1;
-                    sourceData[displayNum] = new Source({ display_id, id });
+                    const size = source.thumbnail.getSize();
+                    // default the key to the screen size
+                    let key = `w${size.width}h${size.height}`;
+                    // if display_id isn't '' or undefined then assign it as the key
+                    if (display_id) {
+                        key = display_id;
+                    }
+                    sourceData[key] = new Source({ display_id, id });
                     fs_1.default.writeFileSync(path_1.default.join(os_1.default.tmpdir(), `ocr-temp-${source.display_id}.png`), source.thumbnail.toPNG());
                 }
             }
         })).catch(e => console.log(e));
+        // all this just to stop wayland from breaking everything very fun
         const sourceEntries = Object.entries(sourceData);
-        if (sourceEntries.length === 1) {
-            const [displayNum, data] = sourceEntries[0];
-            const display = displays[parseInt(displayNum)];
-            return makeScreenshotWindow(display, data.display_id);
-        }
-        for (const [index, display] of displays.entries()) {
-            makeScreenshotWindow(display, sourceData[index].display_id);
-        }
+        sourceEntries.forEach((entry, idx) => {
+            const [key, data] = entry;
+            const display = displaysMapping[key];
+            makeScreenshotWindow(display[idx % display.length], data.display_id);
+        });
     });
 }
 function createAboutWindow() {
@@ -332,9 +354,14 @@ electron_1.app.on("before-quit", ev => {
     mainWindow = null;
     screenshotWindows = {};
     aboutWindow = null;
-    fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'));
-    fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRCrop.png'));
-    fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRResult.txt'));
+    try {
+        fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCR.png'));
+        fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRCrop.png'));
+        fs_1.default.unlinkSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRResult.txt'));
+    }
+    catch (error) {
+        console.log("Temp file(s) not found, ignoring. ", String(error));
+    }
 });
 electron_1.app.on('window-all-closed', () => {
     if (process.platform !== 'darwin')
