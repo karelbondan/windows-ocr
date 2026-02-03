@@ -12,7 +12,8 @@
     "tailwind": "npx tailwindcss -i ./src/site/global.css -o ./dist/site/style.css --watch",
     "start": "npx electronmon .",
     "build": "electron-builder",
-    "build-portable": "electron-builder --win portable"
+    "build-portable": "electron-builder --win portable",
+    "build:linux": "electron-builder --linux"
   },
   "dependencies": {
     "@google-cloud/vision": "^4.0.2"
@@ -27,7 +28,6 @@
   "build": {
     "appId": "Windows OCR",
     "productName": "Windows OCR",
-    "target": "NSIS",
     "directories": {
       "output": "build",
       "buildResources": "build-assets"
@@ -40,6 +40,13 @@
     "win": {
       "appId": "Windows OCR",
       "icon": "build-assets/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "build-assets/icon.png"
     }
   }
 }
