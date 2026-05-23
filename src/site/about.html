@@ -64,6 +64,30 @@
                         </svg>
                     </div>
                 </div>
+                <div class="flex justify-between items-center pt-4">
+                    <div class="col-span-3 max-w-sm">
+                        <p>Show notifications</p>
+                        <p class="text-sm text-white/50 leading-4">Show a native toast with a preview of the copied
+                            text. When off, OCR runs silently — text still goes to the clipboard.</p>
+                    </div>
+                    <div id="checkbox_notifications"
+                        class="min-w-5 min-h-5 bg-neutral-700 rounded-sm flex items-center justify-center cursor-pointer">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2px"
+                            stroke="currentColor" class="w-4 h-4 hidden">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex justify-between items-center pt-4 pb-3">
+                    <div class="col-span-3 max-w-sm">
+                        <p>Notification preview length</p>
+                        <p class="text-sm text-white/50 leading-4">Number of characters from the OCR result shown in
+                            the notification (clipboard always receives the full text).</p>
+                    </div>
+                    <input id="inp_preview_length" type="number" min="10" max="500" step="5"
+                        class="py-2 px-2 rounded-sm w-24 text-right focus:outline-neutral-500 outline-none outline-offset-0 focus:outline-offset-[3px] transition-all"
+                        autocomplete="off">
+                </div>
                 <div class="flex justify-center mt-10 mb-3 space-x-3">
                     <button type="submit" id="save_settings"
                         class="flex justify-end bg-neutral-700 px-10 py-1 rounded-md hover:bg-green-600 hover:outline-green-300 outline-none outline-offset-0 hover:outline-offset-2 transition-all">Save</button>
