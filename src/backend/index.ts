@@ -178,33 +178,84 @@ function createWarningDialog(title: string, body: string) {
     })
 }
 
-function registerShortcut(config: userConfig): { success: boolean, reason: string } {
+// Electron accelerator modifiers (case-insensitive). See:
+// https://www.electronjs.org/docs/latest/api/accelerator
+const ACCELERATOR_MODIFIERS = new Set([
+    'command', 'cmd', 'control', 'ctrl', 'commandorcontrol', 'cmdorctrl',
+    'alt', 'option', 'altgr', 'shift', 'super', 'meta'
+]);
+
+function normalizeAccelerator(raw: string): string {
+    return raw ? raw.replace(/\s/g, '') : '';
+}
+
+// Quick structural validation before handing the string to Electron.
+// Prevents `globalShortcut.register` from throwing on malformed input
+// (the throw inside an IPC handler is what froze the renderer on save).
+function isValidAccelerator(acc: string): boolean {
+    if (!acc) return false;
+    const parts = acc.split('+').map(p => p.trim());
+    if (parts.some(p => p.length === 0)) return false;
+    if (parts.length < 2) return false;
+    const nonModifiers = parts.filter(p => !ACCELERATOR_MODIFIERS.has(p.toLowerCase()));
+    return nonModifiers.length === 1;
+}
+
+type ShortcutResult =
+    | { success: true, reason: "" }
+    | { success: false, reason: "empty" | "invalid" | "conflict" | "reg_failed" | "exception", error?: string };
+
+function triggerCapture() {
+    if (!screenshotWindow) {
+        console.log("OCR capture initiated");
+        createScreenshotWindow();
+    } else {
+        console.log("OCR window already opened");
+        screenshotWindow.focus();
+    }
+}
+
+function registerShortcut(config: userConfig): ShortcutResult {
+    // Always clear any previous binding first — registering the same accelerator
+    // twice without unregistering is a no-op on some platforms and an error on
+    // others, and was contributing to inconsistent state across save attempts.
     globalShortcut.unregisterAll();
-    let kbdTrigger: boolean;
 
-    console.log(config.keyboardShortcut);
+    const accelerator = normalizeAccelerator(config.keyboardShortcut);
 
-    if (config.keyboardShortcut !== "") {
-        kbdTrigger = globalShortcut.register(config.keyboardShortcut.replace(/\s/g, ''), () => {
-            if (!screenshotWindow) {
-                console.log("OCR capture initiated");
-                createScreenshotWindow();
-            } else {
-                console.log("OCR window already opened");
-                screenshotWindow.focus();
-            }
-        })
-
-        if (!kbdTrigger) {
-            console.log("Global shortcut registration failed");
-            return { success: false, reason: "reg_failed" }
-        } else {
-            console.log("Global shortcut registration success");
-            return { success: true, reason: "" }
-        }
+    if (accelerator === "") {
+        return { success: false, reason: "empty" };
     }
 
-    return { success: false, reason: "empty" }
+    if (!isValidAccelerator(accelerator)) {
+        console.log(`Global shortcut '${accelerator}' has invalid format`);
+        return { success: false, reason: "invalid", error: `'${accelerator}' is not a valid accelerator` };
+    }
+
+    // Detect conflict with another running app so we can surface a friendly
+    // message instead of a silent failure.
+    if (globalShortcut.isRegistered(accelerator)) {
+        console.log(`Global shortcut '${accelerator}' is already in use by another app`);
+        return { success: false, reason: "conflict", error: `'${accelerator}' is already in use by another app` };
+    }
+
+    // `register` can throw synchronously on malformed accelerators that pass
+    // our pre-check (Electron internals). Wrapping in try/catch keeps the IPC
+    // handler responsive — without it the renderer's `invoke` never resolves
+    // and the settings window appears frozen.
+    try {
+        const ok = globalShortcut.register(accelerator, triggerCapture);
+        if (!ok) {
+            console.log("Global shortcut registration failed");
+            return { success: false, reason: "reg_failed", error: "Failed to register the shortcut" };
+        }
+        console.log(`Global shortcut '${accelerator}' registered`);
+        return { success: true, reason: "" };
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[Hotkey] register threw:", msg);
+        return { success: false, reason: "exception", error: msg };
+    }
 }
 
 app.whenReady().then(async () => {
@@ -242,25 +293,34 @@ app.whenReady().then(async () => {
     ipcMain.handle('config:save', (event, config: {
         shortcut: string, ss: boolean, notepad: boolean
     }) => {
-        saveConfig(config.shortcut, config.ss, config.notepad);
+        // Try to register the new shortcut FIRST. Persisting to disk before
+        // validation could trap users in a crash loop: a bad accelerator
+        // would re-trigger the same failure on every startup.
+        const candidateConfig: userConfig = {
+            keyboardShortcut: config.shortcut,
+            saveAsScreenshot: config.ss,
+            openNotepad: config.notepad
+        };
+        const regResult = registerShortcut(candidateConfig);
 
-        usrConfig = loadConfig();
-
-        const regUpdateSuccess = registerShortcut(usrConfig);
-        if (!regUpdateSuccess.reason && regUpdateSuccess.reason === "reg_failed") {
-            createWarningDialog(
-                "Windows OCR",
-                "Failed to register a global shortcut to launch the OCR window. "
-                + "You can restart the app to re-apply the updated configuration."
-            )
+        // "empty" is acceptable: the user explicitly cleared the shortcut and
+        // the app falls back to tray-only operation.
+        if (!regResult.success && regResult.reason !== "empty") {
+            // Re-apply the previously working shortcut so the user is not left
+            // with no binding at all after a failed update.
+            registerShortcut(usrConfig);
+            return { success: false, error: regResult.error ?? "Failed to update shortcut", reason: regResult.reason };
         }
+
+        saveConfig(config.shortcut, config.ss, config.notepad);
+        usrConfig = loadConfig();
 
         new Notification({
             icon: appIcon,
             title: "Saved successfully",
             body: "Configuration was updated and changes have been implemented successfully."
         }).show();
-        return true;
+        return { success: true };
     })
 
     ipcMain.on('window:close', (event, args: { error: string, escape: boolean }) => {
@@ -302,11 +362,12 @@ app.whenReady().then(async () => {
             createMainWindow();
     })
 
-    if (!shortcutRegSuccess.success && shortcutRegSuccess.reason === "reg_failed") {
+    if (!shortcutRegSuccess.success && shortcutRegSuccess.reason !== "empty") {
         createWarningDialog(
             "Windows OCR",
             "Failed to register a global shortcut to launch the OCR window. "
-            + "You can restart the app to re-apply the updated configuration."
+            + (shortcutRegSuccess.error ? `Reason: ${shortcutRegSuccess.error}. ` : "")
+            + "You can change it in Settings or restart the app."
         )
     }
 
@@ -336,6 +397,13 @@ app.on("before-quit", ev => {
     fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCR.png'))
     fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'))
     fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRResult.txt'))
+});
+
+// Safety net for shutdown paths that don't fire `before-quit` (e.g. taskbar
+// kill, OS logout) — without this an accelerator could remain registered with
+// the OS after the app exits.
+app.on("will-quit", () => {
+    globalShortcut.unregisterAll();
 });
 
 app.on('window-all-closed', () => {
