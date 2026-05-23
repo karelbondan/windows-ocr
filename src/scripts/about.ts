@@ -34,15 +34,23 @@ function load_config() {
 load_config();
 
 function save_config(kb_shortcut: string, screenshot: boolean, notepad: boolean) {
+    unsaved_changes.classList.remove("hidden");
     unsaved_changes.innerText = "Saving...";
     unsaved_changes.classList.add("animate-pulse");
 
     // @ts-expect-error
     window.ocrRenderer.saveConfig(kb_shortcut, screenshot, notepad)
-        .then(async (state: boolean) => {
+        .then(async (result: { success: boolean, error?: string }) => {
+            unsaved_changes.classList.remove("animate-pulse");
+            if (result && result.success === false) {
+                // Inline error: do NOT call spawnError, which would kill the
+                // app. The previous shortcut has already been re-applied by
+                // the main process, so the user can simply try again.
+                unsaved_changes.innerText = `• ${result.error ?? "Failed to save"}`;
+                return;
+            }
             await load_config();
             unsaved_changes.classList.add("hidden");
-            unsaved_changes.classList.remove("animate-pulse");
             unsaved_changes.innerText = "• Unsaved changes";
         })
         .catch((err: any) => {
