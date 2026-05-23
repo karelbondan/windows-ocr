@@ -13,10 +13,17 @@ let mainWindow: {
     tray: Tray | null,
     icons: BrowserWindow | null
 } | null = { win: null, tray: null, icons: null };
-let screenshotWindow: BrowserWindow | null;
+// One overlay per physical display, keyed by Electron's numeric display.id.
+// Created fresh on every hotkey trigger so hot-plugged monitors are picked up.
+let overlayWindows: Map<number, BrowserWindow> = new Map();
 let aboutWindow: BrowserWindow | null;
 let usrConfig: userConfig
 let fileName: string
+
+const DEBUG_MULTIMON = process.env.DEBUG_MULTIMON === "1";
+function mmlog(...args: unknown[]) {
+    if (DEBUG_MULTIMON) console.log("[multimon]", ...args);
+}
 
 const trayIcon = nativeImage.createFromPath(
     path.join(__dirname, "../../src/media/icon_tray.png")
@@ -68,10 +75,7 @@ function createMainWindow() {
         {
             label: "Launch",
             click: (item, window, event) => {
-                if (!screenshotWindow)
-                    createScreenshotWindow();
-                else
-                    screenshotWindow.focus();
+                createScreenshotWindow();
             }
         },
         {
@@ -90,54 +94,146 @@ function createMainWindow() {
     mainWindow!.tray.setContextMenu(menu);
 }
 
-async function createScreenshotWindow() {
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const { width, height } = primaryDisplay.size;
-    const factor = primaryDisplay.scaleFactor;
+function overlayPngPath(displayId: number): string {
+    return path.join(os.tmpdir(), `WindowsOCR_${displayId}.png`);
+}
 
-    await desktopCapturer.getSources({
-        types: ['screen'],
-        thumbnailSize: {
-            width: width * factor, height: height * factor
-        }
-    }).then(async sources => {
-        for (const source of sources) {
-            if (source) {
-                fs.writeFileSync(
-                    path.join(os.tmpdir(), 'WindowsOCR.png'),
-                    source.thumbnail.toPNG()
-                );
-                return
+function closeAllOverlays() {
+    mmlog("closing all overlays:", overlayWindows.size);
+    // Snapshot and clear up-front so the 'closed' listener (which calls
+    // overlayWindows.delete) can't race with this iteration.
+    const wins = Array.from(overlayWindows.values());
+    overlayWindows.clear();
+    for (const win of wins) {
+        if (!win.isDestroyed()) win.close();
+    }
+}
+
+function cleanupOverlayPngs() {
+    // Best-effort cleanup of per-display screenshots written to tmpdir. Stale
+    // files would survive across runs otherwise and slowly accumulate.
+    try {
+        const tmp = os.tmpdir();
+        for (const name of fs.readdirSync(tmp)) {
+            if (/^WindowsOCR_\d+\.png$/.test(name)) {
+                try { fs.unlinkSync(path.join(tmp, name)); } catch { /* ignore */ }
             }
         }
-    }).catch(e => console.log(e))
+    } catch (e) {
+        mmlog("cleanupOverlayPngs failed:", e);
+    }
+}
 
-    screenshotWindow = new BrowserWindow({
-        width: 1, height: 1, frame: false, show: false, transparent: true,
-        webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: true,
-            preload: path.join(__dirname, 'preload.js')
-        },
-        minimizable: false, resizable: false, icon: appIcon
+async function createScreenshotWindow() {
+    // Re-trigger of the hotkey while overlays already exist: just focus and bail.
+    if (overlayWindows.size > 0) {
+        const first = overlayWindows.values().next().value;
+        if (first && !first.isDestroyed()) first.focus();
+        return;
+    }
+
+    // Always re-enumerate displays — handles hot-plug without any cache.
+    const displays = screen.getAllDisplays();
+    mmlog("displays:", displays.map(d => ({
+        id: d.id, bounds: d.bounds, size: d.size,
+        scaleFactor: d.scaleFactor, rotation: d.rotation
+    })));
+
+    // `desktopCapturer.getSources` returns one source per physical display.
+    // thumbnailSize is the *upper bound* applied to every source; we set it to
+    // the largest physical resolution so no display is downscaled. Smaller
+    // displays come back at their own native size (Electron preserves aspect).
+    const maxPhysW = Math.max(...displays.map(d => Math.round(d.size.width * d.scaleFactor)));
+    const maxPhysH = Math.max(...displays.map(d => Math.round(d.size.height * d.scaleFactor)));
+
+    let sources: Electron.DesktopCapturerSource[] = [];
+    try {
+        sources = await desktopCapturer.getSources({
+            types: ['screen'],
+            thumbnailSize: { width: maxPhysW, height: maxPhysH }
+        });
+    } catch (e) {
+        console.error("[multimon] desktopCapturer.getSources failed:", e);
+        return;
+    }
+    mmlog("sources:", sources.map(s => ({ id: s.id, display_id: s.display_id, name: s.name })));
+
+    // Match sources to displays by display_id. Electron returns display_id as a
+    // string; display.id is numeric. When display_id is empty (older Electron
+    // or some Linux setups), fall back to positional matching.
+    const displayPngPaths = new Map<number, string>();
+    displays.forEach((display, idx) => {
+        let source = sources.find(s => s.display_id && s.display_id === display.id.toString());
+        if (!source) source = sources[idx];
+        if (!source) {
+            mmlog("no source available for display", display.id);
+            return;
+        }
+        const filePath = overlayPngPath(display.id);
+        fs.writeFileSync(filePath, source.thumbnail.toPNG());
+        displayPngPaths.set(display.id, filePath);
+        mmlog("wrote", filePath, "for display", display.id);
     });
 
-    screenshotWindow.setMenuBarVisibility(false);
-    screenshotWindow.setIcon(appIcon);
-    screenshotWindow.loadFile(path.join(__dirname, '../../src/site/index.html'))
-    screenshotWindow.once('ready-to-show', () => {
-        screenshotWindow!.setPosition(0, 0);
-        screenshotWindow!.show();
-    })
-    screenshotWindow.webContents.on('did-finish-load', () => {
-        screenshotWindow!.webContents.send("ocr:loadimg");
-    })
-    screenshotWindow.on('close', () => {
-        screenshotWindow = null;
-    })
-    setTimeout(() => {
-        screenshotWindow!.setFullScreen(true);
-    }, 500);
+    // One overlay BrowserWindow per display, anchored to the display's bounds.
+    //
+    // Why NOT setFullScreen(true): on Windows, fullscreen on a secondary display
+    // is unreliable and sometimes snaps the window back to the primary. Explicit
+    // bounds + setAlwaysOnTop('screen-saver') gives the same UX deterministically
+    // across all monitors (including those with negative x/y, i.e. to the left
+    // of the primary, and rotated portrait monitors).
+    for (const display of displays) {
+        const imgPath = displayPngPaths.get(display.id);
+        if (!imgPath) continue;
+
+        const win = new BrowserWindow({
+            x: display.bounds.x,
+            y: display.bounds.y,
+            width: display.bounds.width,
+            height: display.bounds.height,
+            frame: false, show: false, transparent: true,
+            resizable: false, movable: false, minimizable: false, hasShadow: false,
+            skipTaskbar: true,
+            webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: true,
+                preload: path.join(__dirname, 'preload.js')
+            },
+            icon: appIcon
+        });
+
+        win.setMenuBarVisibility(false);
+        win.setIcon(appIcon);
+        // 'screen-saver' is the highest stacking level; keeps the overlay above
+        // taskbars and other always-on-top apps.
+        win.setAlwaysOnTop(true, 'screen-saver');
+        win.loadFile(path.join(__dirname, '../../src/site/index.html'));
+
+        win.webContents.on('did-finish-load', () => {
+            // Per-display payload: each overlay loads its OWN physical screenshot,
+            // which keeps the existing `normalise = naturalWidth / clientWidth`
+            // math in screenshot.ts correct for that display's scaleFactor.
+            win.webContents.send('ocr:loadimg', {
+                imagePath: imgPath,
+                displayId: display.id,
+                bounds: display.bounds,
+                scaleFactor: display.scaleFactor
+            });
+        });
+
+        win.once('ready-to-show', () => {
+            win.show();
+        });
+
+        win.on('closed', () => {
+            overlayWindows.delete(display.id);
+            mmlog("overlay closed for display", display.id, "remaining:", overlayWindows.size);
+        });
+
+        overlayWindows.set(display.id, win);
+    }
+
+    mmlog("created", overlayWindows.size, "overlay(s)");
 }
 
 function createAboutWindow() {
@@ -206,12 +302,14 @@ type ShortcutResult =
     | { success: false, reason: "empty" | "invalid" | "conflict" | "reg_failed" | "exception", error?: string };
 
 function triggerCapture() {
-    if (!screenshotWindow) {
+    if (overlayWindows.size === 0) {
         console.log("OCR capture initiated");
         createScreenshotWindow();
     } else {
         console.log("OCR window already opened");
-        screenshotWindow.focus();
+        // Re-focus the first overlay so the user can keep selecting.
+        const first = overlayWindows.values().next().value;
+        if (first && !first.isDestroyed()) first.focus();
     }
 }
 
@@ -325,7 +423,12 @@ app.whenReady().then(async () => {
 
     ipcMain.on('window:close', (event, args: { error: string, escape: boolean }) => {
         if (args.error === "") {
-            screenshotWindow?.close();
+            // Tear down every overlay, not just the one that sent the event. By
+            // the time this fires the user has either finished or cancelled, so
+            // the other displays' overlays (if any survived selection-started)
+            // must go too.
+            closeAllOverlays();
+            cleanupOverlayPngs();
             if (!args.escape) {
                 if (usrConfig.openNotepad)
                     if (process.platform === 'win32')
@@ -339,6 +442,19 @@ app.whenReady().then(async () => {
                             + os.homedir() + "\\Pictures\\Screenshots\\" + fileName
                     }).show();
                 }
+            }
+        }
+    })
+
+    ipcMain.on('overlay:selection-started', (event, displayId: number) => {
+        // User has begun dragging on `displayId`. Tear down overlays on the
+        // OTHER displays so they stop intercepting input and stop dimming
+        // those screens. The active overlay stays open until selection
+        // completes (or ESC cancels via `window:close`).
+        mmlog("selection started on display", displayId);
+        for (const [id, win] of overlayWindows) {
+            if (id !== displayId && !win.isDestroyed()) {
+                win.close();
             }
         }
     })
@@ -392,11 +508,19 @@ app.on("before-quit", ev => {
     globalShortcut.unregisterAll()
     mainWindow!.win!.removeAllListeners("close");
     mainWindow = null;
-    screenshotWindow = null;
+    closeAllOverlays();
     aboutWindow = null;
-    fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCR.png'))
-    fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'))
-    fs.unlinkSync(path.join(os.tmpdir(), 'WindowsOCRResult.txt'))
+    // Best-effort temp cleanup. The original unlinkSync() calls threw if any
+    // file was already missing (e.g. user quit before ever capturing) and that
+    // exception aborted the rest of the cleanup.
+    const tmpFiles = [
+        path.join(os.tmpdir(), 'WindowsOCRCrop.png'),
+        path.join(os.tmpdir(), 'WindowsOCRResult.txt'),
+    ];
+    for (const f of tmpFiles) {
+        try { fs.unlinkSync(f); } catch { /* ignore */ }
+    }
+    cleanupOverlayPngs();
 });
 
 // Safety net for shutdown paths that don't fire `before-quit` (e.g. taskbar

@@ -1,4 +1,14 @@
 listener.onmousedown = (e) => {
+    // Multi-monitor: tell the main process to tear down overlays on the OTHER
+    // displays as soon as the user commits to a screen. The active overlay
+    // stays until selection completes or ESC cancels.
+    // @ts-expect-error injected by renderer.ts
+    const displayId = window.__ocrDisplayId;
+    if (typeof displayId === "number") {
+        // @ts-expect-error
+        window.ocrRenderer.signalSelectionStarted(displayId);
+    }
+
     if (!draw.className.split(' ').includes("pointer-events-none"))
         draw.classList.toggle("pointer-events-none");
 

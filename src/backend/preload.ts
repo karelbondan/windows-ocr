@@ -3,15 +3,29 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 
+type LoadImagePayload = {
+    imagePath: string,
+    displayId: number,
+    bounds: { x: number, y: number, width: number, height: number },
+    scaleFactor: number
+};
+
 export const ocrRenderer = {
-    loadImage: (callback: (val: any) => {}) => ipcRenderer.on('ocr:loadimg', (_event, value) => callback(value)),
+    // The main process now sends a per-display payload (image path + display
+    // metadata). The legacy zero-arg callback signature is gone; renderer must
+    // read `imagePath` to load the correct screenshot for its display.
+    loadImage: (callback: (val: LoadImagePayload) => void) =>
+        ipcRenderer.on('ocr:loadimg', (_event, value: LoadImagePayload) => callback(value)),
     exportImageAndDoOCR: (img: string) => {
         const imgData = img.replace(/^data:image\/\w+;base64,/, '');
         const imgBuffer = Buffer.from(imgData, 'base64');
         fs.writeFileSync(path.join(os.tmpdir(), 'WindowsOCRCrop.png'), imgBuffer);
         return ipcRenderer.invoke('ocr:perform', 'send-receive test');
     },
-    tempImageLoc: () => path.join(os.tmpdir(), 'WindowsOCR.png'),
+    // Notifies main that the user has started drawing on this overlay so the
+    // overlays on other displays can be torn down.
+    signalSelectionStarted: (displayId: number) =>
+        ipcRenderer.send('overlay:selection-started', displayId),
     closeWindow: (error: string, escape: boolean) => ipcRenderer.send('window:close', { error: error, escape: escape }),
     spawnError: (message: string) => ipcRenderer.send('window:error', message),
     loadConfig: () => ipcRenderer.invoke('config:load'),
