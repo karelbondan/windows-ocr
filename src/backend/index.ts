@@ -1,6 +1,6 @@
 import {
     app, BrowserWindow, ipcMain, screen, desktopCapturer, globalShortcut,
-    Tray, Menu, nativeImage, Notification, dialog
+    Tray, Menu, nativeImage, Notification, dialog, clipboard
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -33,25 +33,200 @@ const appIcon = nativeImage.createFromPath(
 ).resize({ width: 50, height: 50 });
 const googleClient = new vision.ImageAnnotatorClient();
 
-function saveConfig(shortcut: string, ss: boolean, notepad: boolean) {
-    const kb_shortcut = shortcut ? shortcut.trim() : "";
-    fs.writeFileSync(path.join(process.cwd(), 'config.json'), JSON.stringify({
-        keyboardShortcut: kb_shortcut,
-        saveAsScreenshot: ss,
-        openNotepad: notepad
-    }));
+const CONFIG_DEFAULTS = {
+    keyboardShortcut: "Control + Shift + Alt + T",
+    saveAsScreenshot: false,
+    openNotepad: false,
+    showNotifications: true,
+    notificationPreviewLength: 60,
+};
+
+function saveConfig(cfg: Partial<userConfig>) {
+    // Merge over existing on-disk state so partial saves (older callers) don't
+    // wipe newer fields.
+    let existing: Partial<userConfig> = {};
+    try { existing = loadConfig(); } catch { /* first run */ }
+    const merged: userConfig = { ...CONFIG_DEFAULTS, ...existing, ...cfg };
+    if (typeof merged.keyboardShortcut === "string") merged.keyboardShortcut = merged.keyboardShortcut.trim();
+    fs.writeFileSync(path.join(process.cwd(), 'config.json'), JSON.stringify(merged, null, 2));
 }
 
-function loadConfig() {
-    return JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json'),
+function loadConfig(): userConfig {
+    const raw = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json'),
         { encoding: 'utf8', flag: 'r' }));
+    // Migrate older configs missing new fields — fall back to defaults.
+    return { ...CONFIG_DEFAULTS, ...raw };
 }
 
 try {
     usrConfig = loadConfig();
 } catch (error) {
-    saveConfig("Control + Shift + Alt + T", false, false);
+    saveConfig({});
     usrConfig = loadConfig();
+}
+
+// ---------- History ----------
+// Circular buffer of the last N successful OCR captures. Persisted in
+// `userData` (NOT cwd, unlike the legacy `config.json`) so it survives
+// reinstalls cleanly and lives in the per-user writable area.
+const HISTORY_MAX = 20;
+type HistoryEntry = { text: string, timestamp: number, charCount: number, preview: string };
+let history: HistoryEntry[] = [];
+
+function historyFilePath(): string {
+    return path.join(app.getPath('userData'), 'windows-ocr-history.json');
+}
+
+function loadHistory(): HistoryEntry[] {
+    try {
+        const raw = fs.readFileSync(historyFilePath(), { encoding: 'utf8' });
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.slice(0, HISTORY_MAX) : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveHistory() {
+    try {
+        fs.writeFileSync(historyFilePath(), JSON.stringify(history, null, 2));
+    } catch (e) {
+        console.error("[history] save failed:", e);
+    }
+}
+
+function makePreview(text: string, len: number): string {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    return flat.length > len ? flat.slice(0, len) + '…' : flat;
+}
+
+function appendToHistory(text: string) {
+    const previewLen = usrConfig.notificationPreviewLength || 60;
+    history.unshift({
+        text,
+        timestamp: Date.now(),
+        charCount: text.length,
+        preview: makePreview(text, previewLen),
+    });
+    if (history.length > HISTORY_MAX) history.length = HISTORY_MAX;
+    saveHistory();
+    rebuildTrayMenu();
+}
+
+// ---------- OCR result handling ----------
+// Single funnel for every successful Vision response. Owns the side effects
+// (clipboard, file write, notification, notepad spawn, history) so they
+// remain consistent whether triggered by the overlay flow or any future
+// entry point (e.g. drag-and-drop a screenshot file).
+function handleOCRResult(text: string): { ok: true, length: number, preview: string } {
+    const cleaned = (text || "").trim();
+
+    if (cleaned === "") {
+        if (usrConfig.showNotifications) {
+            new Notification({
+                icon: appIcon,
+                title: "Windows OCR",
+                body: "No text detected in the selected area.",
+            }).show();
+        }
+        return { ok: true, length: 0, preview: "" };
+    }
+
+    // 1) Clipboard — done in main (not renderer) so it doesn't depend on the
+    //    overlay window being focused at the moment of the write.
+    clipboard.writeText(cleaned);
+
+    // 2) Persist for downstream tools that the user may have enabled.
+    try {
+        fs.writeFileSync(
+            path.join(os.tmpdir(), 'WindowsOCRResult.txt'),
+            cleaned,
+            { encoding: 'utf-8' }
+        );
+    } catch (e) {
+        console.error("[ocr] writing result txt failed:", e);
+    }
+
+    // 3) Optional toast with text preview (truncated, whitespace collapsed).
+    const preview = makePreview(cleaned, usrConfig.notificationPreviewLength || 60);
+    if (usrConfig.showNotifications) {
+        // Notification failures (permission denied, focus assist on, etc.) are
+        // intentionally swallowed — clipboard already succeeded, so the user
+        // got what they came for.
+        try {
+            new Notification({
+                icon: appIcon,
+                title: "Text copied to clipboard",
+                body: `${cleaned.length} chars • ${preview}`,
+            }).show();
+        } catch (e) {
+            console.error("[ocr] notification failed:", e);
+        }
+    }
+
+    // 4) Opt-in Notepad spawn (legacy behavior — kept for users who relied on it).
+    if (usrConfig.openNotepad && process.platform === 'win32') {
+        try {
+            spawnObj.spawn("C:\\Windows\\notepad.exe",
+                [path.join(os.tmpdir(), 'WindowsOCRResult.txt')]);
+        } catch (e) {
+            console.error("[ocr] notepad spawn failed:", e);
+        }
+    }
+
+    // 5) History.
+    appendToHistory(cleaned);
+
+    return { ok: true, length: cleaned.length, preview };
+}
+
+function handleOCRError(err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[ocr] error:", msg);
+    if (usrConfig.showNotifications) {
+        try {
+            new Notification({
+                icon: appIcon,
+                title: "OCR failed",
+                body: msg.length > 200 ? msg.slice(0, 200) + '…' : msg,
+            }).show();
+        } catch { /* ignore */ }
+    }
+}
+
+// ---------- Tray menu (lazy rebuild for history submenu) ----------
+function rebuildTrayMenu() {
+    if (!mainWindow?.tray) return;
+    const historyItems: Electron.MenuItemConstructorOptions[] = history.length === 0
+        ? [{ label: "(empty)", enabled: false }]
+        : history.map((h, idx) => ({
+            label: `${idx + 1}. ${h.preview}`,
+            toolTip: `${h.charCount} chars • ${new Date(h.timestamp).toLocaleString()}`,
+            click: () => {
+                clipboard.writeText(h.text);
+                if (usrConfig.showNotifications) {
+                    try {
+                        new Notification({
+                            icon: appIcon,
+                            title: "Re-copied from history",
+                            body: `${h.charCount} chars • ${h.preview}`,
+                        }).show();
+                    } catch { /* ignore */ }
+                }
+            },
+        }));
+
+    const menu = Menu.buildFromTemplate([
+        { label: "Windows OCR", icon: trayIcon, enabled: false },
+        { type: "separator" },
+        { label: "Launch", click: () => createScreenshotWindow() },
+        { label: "Settings", click: () => { if (!aboutWindow) createAboutWindow(); else aboutWindow.focus(); } },
+        { type: "separator" },
+        { label: "History", submenu: historyItems },
+        { type: "separator" },
+        { role: "quit" },
+    ]);
+    mainWindow.tray.setContextMenu(menu);
 }
 
 function createMainWindow() {
@@ -65,33 +240,9 @@ function createMainWindow() {
     })
 
     mainWindow!.tray = new Tray(trayIcon);
-    const menu = Menu.buildFromTemplate([
-        {
-            label: "Windows OCR",
-            icon: trayIcon,
-            enabled: false,
-        },
-        { type: "separator" },
-        {
-            label: "Launch",
-            click: (item, window, event) => {
-                createScreenshotWindow();
-            }
-        },
-        {
-            label: "Settings",
-            click: (item, window, event) => {
-                if (!aboutWindow)
-                    createAboutWindow();
-                else
-                    aboutWindow.focus();
-            }
-        },
-        { type: "separator" },
-        { role: "quit" }
-    ])
     mainWindow!.tray.setToolTip("Windows OCR");
-    mainWindow!.tray.setContextMenu(menu);
+    // Initial menu (also rebuilt whenever history changes).
+    rebuildTrayMenu();
 }
 
 function overlayPngPath(displayId: number): string {
@@ -367,21 +518,43 @@ app.whenReady().then(async () => {
         )
     }
 
+    history = loadHistory();
+
     ipcMain.handle('ocr:perform', async (event, message) => {
-        if (usrConfig.saveAsScreenshot) {
-            const today = new Date();
-            fileName = "Screenshot_"
-                + today.toJSON().slice(0, 10).replace(/\-/g, '')
-                + "_"
-                + today.toString().split(' ')[4].replace(/\:/g, '')
-                + ".png";
-            fs.copyFileSync(
-                path.join(os.tmpdir(), 'WindowsOCRCrop.png'),
-                path.join(os.homedir(), 'Pictures', 'Screenshots', fileName
-                ));
+        // Side effects (saveAsScreenshot, Vision call, clipboard, notification,
+        // notepad, history) all owned here. The renderer just awaits a boolean
+        // outcome and closes the overlay either way.
+        try {
+            if (usrConfig.saveAsScreenshot) {
+                const today = new Date();
+                fileName = "Screenshot_"
+                    + today.toJSON().slice(0, 10).replace(/\-/g, '')
+                    + "_"
+                    + today.toString().split(' ')[4].replace(/\:/g, '')
+                    + ".png";
+                fs.copyFileSync(
+                    path.join(os.tmpdir(), 'WindowsOCRCrop.png'),
+                    path.join(os.homedir(), 'Pictures', 'Screenshots', fileName)
+                );
+                if (usrConfig.showNotifications) {
+                    try {
+                        new Notification({
+                            icon: appIcon,
+                            title: "Screenshot saved",
+                            body: "Saved to " + os.homedir() + "\\Pictures\\Screenshots\\" + fileName,
+                        }).show();
+                    } catch { /* ignore */ }
+                }
+            }
+            const result = await googleClient.documentTextDetection(
+                path.join(os.tmpdir(), 'WindowsOCRCrop.png')
+            );
+            const text = (result?.[0] as any)?.fullTextAnnotation?.text ?? "";
+            return handleOCRResult(text);
+        } catch (err) {
+            handleOCRError(err);
+            return { ok: false, error: err instanceof Error ? err.message : String(err) };
         }
-        return googleClient.documentTextDetection(path.join(os.tmpdir(), 'WindowsOCRCrop.png'));
-        // return await new Promise(resolve => setTimeout(() => resolve('delay'), 3000));
     })
 
     ipcMain.handle('config:load', (event, message) => {
@@ -389,7 +562,8 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('config:save', (event, config: {
-        shortcut: string, ss: boolean, notepad: boolean
+        shortcut: string, ss: boolean, notepad: boolean,
+        showNotifications?: boolean, notificationPreviewLength?: number
     }) => {
         // Try to register the new shortcut FIRST. Persisting to disk before
         // validation could trap users in a crash loop: a bad accelerator
@@ -397,7 +571,9 @@ app.whenReady().then(async () => {
         const candidateConfig: userConfig = {
             keyboardShortcut: config.shortcut,
             saveAsScreenshot: config.ss,
-            openNotepad: config.notepad
+            openNotepad: config.notepad,
+            showNotifications: config.showNotifications ?? usrConfig.showNotifications,
+            notificationPreviewLength: config.notificationPreviewLength ?? usrConfig.notificationPreviewLength,
         };
         const regResult = registerShortcut(candidateConfig);
 
@@ -410,7 +586,7 @@ app.whenReady().then(async () => {
             return { success: false, error: regResult.error ?? "Failed to update shortcut", reason: regResult.reason };
         }
 
-        saveConfig(config.shortcut, config.ss, config.notepad);
+        saveConfig(candidateConfig);
         usrConfig = loadConfig();
 
         new Notification({
@@ -422,28 +598,13 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.on('window:close', (event, args: { error: string, escape: boolean }) => {
-        if (args.error === "") {
-            // Tear down every overlay, not just the one that sent the event. By
-            // the time this fires the user has either finished or cancelled, so
-            // the other displays' overlays (if any survived selection-started)
-            // must go too.
-            closeAllOverlays();
-            cleanupOverlayPngs();
-            if (!args.escape) {
-                if (usrConfig.openNotepad)
-                    if (process.platform === 'win32')
-                        spawnObj.spawn("C:\\Windows\\notepad.exe",
-                            [path.join(os.tmpdir(), 'WindowsOCRResult.txt')]);
-                if (usrConfig.saveAsScreenshot) {
-                    new Notification({
-                        icon: appIcon,
-                        title: "Screenshot saved",
-                        body: "Screenshot was saved in "
-                            + os.homedir() + "\\Pictures\\Screenshots\\" + fileName
-                    }).show();
-                }
-            }
-        }
+        // Tear down every overlay unconditionally. Previously this was gated by
+        // `args.error === ""`, which meant an OCR failure would leave the
+        // overlay open. The success-side effects (clipboard, notification,
+        // notepad, screenshot copy) all moved into `ocr:perform`, so this
+        // handler is now just window lifecycle.
+        closeAllOverlays();
+        cleanupOverlayPngs();
     })
 
     ipcMain.on('overlay:selection-started', (event, displayId: number) => {

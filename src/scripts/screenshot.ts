@@ -25,21 +25,24 @@ screenshot_bt.onclick = async function (e) {
         window.ocrRenderer.exportImageAndDoOCR(canvas.toDataURL('image/png', 1))
             // @ts-expect-error
             .then(result => {
-                if (result.error) {
-                    throw result.error;
+                // Main now owns clipboard, file write, notification, notepad
+                // spawn, and history. The renderer just acknowledges and
+                // closes the overlay regardless of outcome — error toasts are
+                // surfaced by the main process via Notification, not modal.
+                if (result && result.ok === false) {
+                    console.warn("OCR failed:", result.error);
+                } else {
+                    console.log("OCR completed:", result && result.length, "chars");
                 }
-                console.log("OCR completed successfully");
-                navigator.clipboard.writeText(result[0].fullTextAnnotation.text);
-                // @ts-expect-error
-                window.ocrRenderer.writeTextToFile(result[0].fullTextAnnotation.text);
                 close_window();
-            }
-                // @ts-expect-error
-            ).catch(err => {
-                close_window(err.toString());
-                // @ts-expect-error
-                window.ocrRenderer.spawnError(
-                    `Something happened while trying to perform the OCR. The detailed error message is as follows:\n\n${err.toString()}`);
+            })
+            // @ts-expect-error
+            .catch(err => {
+                // This catch only fires for IPC-level failures (main crashed,
+                // channel closed). Surface to console; main's handleOCRError
+                // covers the Vision API path with a non-fatal toast.
+                console.error("OCR IPC failed:", err);
+                close_window();
             });
     }
 };

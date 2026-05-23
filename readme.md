@@ -28,6 +28,31 @@ This is a fun project I did on my spare time. It was made to fulfill the need of
 
 - The `Enter` key can be pressed to perform OCR after the capture box has been drawn. The `Esc` key can be pressed to cancel/close the OCR window.
 
+## Silent mode and notifications
+
+OCR runs silently end-to-end — there is no confirmation window. The recognized text goes straight to the clipboard and a native Windows toast shows a short preview.
+
+**Flow:**
+
+```
+hotkey  →  select region  →  Enter / OCR button  →  clipboard  +  toast
+```
+
+**Settings (Settings page):**
+
+- **Show notifications** (default: on) — toggles the native success toast. When off, the OCR is fully silent; clipboard still receives the text.
+- **Notification preview length** (default: 60 chars) — number of characters from the result shown in the toast body. The full text always goes to the clipboard regardless.
+- **Save as screenshot** (existing) — also persists the cropped image into `Pictures\Screenshots`.
+- **Open notepad after performing OCR** (existing) — opens the result in Notepad after the toast.
+
+**No text detected** — if the Vision API returns an empty result, a non-intrusive toast says so and the app keeps running.
+
+**Errors are non-fatal** — network errors, API failures, or invalid credentials now surface as a toast instead of killing the app with a modal dialog.
+
+## History
+
+The tray menu has a **History** submenu with the last 20 successful captures. Each entry is clickable to re-copy the text to the clipboard. The history is persisted under the per-user `userData` directory as `windows-ocr-history.json`, so it survives restarts and reinstalls.
+
 ## Setting up
 
 ### Installing the app

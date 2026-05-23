@@ -1,6 +1,8 @@
 const kb_shortcut = document.getElementById("inp_kb_shortcut") as HTMLInputElement;
 const checkbox_ss = document.getElementById("checkbox_ss") as HTMLDivElement;
 const checkbox_notepad = document.getElementById("checkbox_notepad") as HTMLDivElement;
+const checkbox_notifications = document.getElementById("checkbox_notifications") as HTMLDivElement;
+const inp_preview_length = document.getElementById("inp_preview_length") as HTMLInputElement;
 const save_settings_bt = document.getElementById("save_settings") as HTMLButtonElement;
 const reset_settings_bt = document.getElementById("reset_settings") as HTMLButtonElement;
 const unsaved_changes = document.getElementById("unsaved_changes") as HTMLParagraphElement;
@@ -8,7 +10,9 @@ const unsaved_changes = document.getElementById("unsaved_changes") as HTMLParagr
 interface userConfig {
     keyboardShortcut: string
     saveAsScreenshot: boolean,
-    openNotepad: boolean
+    openNotepad: boolean,
+    showNotifications: boolean,
+    notificationPreviewLength: number
 }
 
 const chk_disabled = "min-w-5 min-h-5 bg-neutral-700 outline-none outline-offset-0 rounded-sm cursor-pointer transition-all";
@@ -25,6 +29,9 @@ function load_config() {
             checkbox_ss.ariaChecked = `${config.saveAsScreenshot}`;
             checkbox_notepad.className = config.openNotepad ? chk_enabled : chk_disabled;
             checkbox_notepad.ariaChecked = `${config.openNotepad}`;
+            checkbox_notifications.className = config.showNotifications ? chk_enabled : chk_disabled;
+            checkbox_notifications.ariaChecked = `${config.showNotifications}`;
+            inp_preview_length.value = String(config.notificationPreviewLength ?? 60);
         }).catch((err: any) => {
             // @ts-expect-error
             window.ocrRenderer.spawnError(`An error occured when opening the configuration file. The application will exit to prevent further errors.\n\n${err.toString()}`);
@@ -33,13 +40,16 @@ function load_config() {
 
 load_config();
 
-function save_config(kb_shortcut: string, screenshot: boolean, notepad: boolean) {
+function save_config(
+    kb_shortcut: string, screenshot: boolean, notepad: boolean,
+    showNotifications: boolean, notificationPreviewLength: number
+) {
     unsaved_changes.classList.remove("hidden");
     unsaved_changes.innerText = "Saving...";
     unsaved_changes.classList.add("animate-pulse");
 
     // @ts-expect-error
-    window.ocrRenderer.saveConfig(kb_shortcut, screenshot, notepad)
+    window.ocrRenderer.saveConfig(kb_shortcut, screenshot, notepad, showNotifications, notificationPreviewLength)
         .then(async (result: { success: boolean, error?: string }) => {
             unsaved_changes.classList.remove("animate-pulse");
             if (result && result.success === false) {
@@ -60,10 +70,13 @@ function save_config(kb_shortcut: string, screenshot: boolean, notepad: boolean)
 }
 
 function checkChanges(kb_shortcut: string) {
+    const previewLen = parseInt(inp_preview_length.value, 10);
     if (
         kb_shortcut !== prev_config.keyboardShortcut
         || get_boolean(checkbox_ss.ariaChecked!) !== prev_config.saveAsScreenshot
         || get_boolean(checkbox_notepad.ariaChecked!) !== prev_config.openNotepad
+        || get_boolean(checkbox_notifications.ariaChecked!) !== prev_config.showNotifications
+        || (Number.isFinite(previewLen) && previewLen !== prev_config.notificationPreviewLength)
     )
         unsaved_changes.classList.remove("hidden");
     else
@@ -74,18 +87,25 @@ function get_boolean(val: string) {
     return /true/.test(val)
 }
 
+function clamp(n: number, lo: number, hi: number): number {
+    return Math.min(hi, Math.max(lo, n));
+}
+
 save_settings_bt.onclick = function (e) {
     e.preventDefault();
+    const previewLen = parseInt(inp_preview_length.value, 10);
     save_config(
         kb_shortcut.value,
         get_boolean(checkbox_ss.ariaChecked!),
         get_boolean(checkbox_notepad.ariaChecked!),
+        get_boolean(checkbox_notifications.ariaChecked!),
+        Number.isFinite(previewLen) ? clamp(previewLen, 10, 500) : 60,
     );
 }
 
 reset_settings_bt.onclick = function (e) {
     e.preventDefault();
-    save_config("Control + Shift + Alt + T", false, false);
+    save_config("Control + Shift + Alt + T", false, false, true, 60);
 }
 
 kb_shortcut.onkeydown = function (e) {
@@ -121,5 +141,16 @@ checkbox_ss.onclick = function (e) {
     e.preventDefault();
     checkbox_ss.ariaChecked = `${!get_boolean(checkbox_ss.ariaChecked!)}`
     checkbox_ss.className = get_boolean(checkbox_ss.ariaChecked!) ? chk_enabled : chk_disabled;
+    checkChanges(kb_shortcut.value);
+}
+
+checkbox_notifications.onclick = function (e) {
+    e.preventDefault();
+    checkbox_notifications.ariaChecked = `${!get_boolean(checkbox_notifications.ariaChecked!)}`
+    checkbox_notifications.className = get_boolean(checkbox_notifications.ariaChecked!) ? chk_enabled : chk_disabled;
+    checkChanges(kb_shortcut.value);
+}
+
+inp_preview_length.oninput = function () {
     checkChanges(kb_shortcut.value);
 }
