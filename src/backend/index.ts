@@ -8,6 +8,21 @@ import os from 'os';
 import vision from '@google-cloud/vision';
 import spawnObj from 'child_process'
 
+// Single-instance enforcement. Without this, a second launch (double-click
+// of the tray icon, a second shortcut, etc.) starts a duplicate process
+// that fights the first one for the global hotkey registration, leaving
+// the user with two trays and no working hotkey. The second process exits
+// immediately via app.exit(0) (skips before-quit so it doesn't try to
+// clean up state it never initialized); the existing process catches the
+// 'second-instance' event and fires the OCR capture as if the user had
+// pressed the hotkey — useful feedback when the user forgot it's in tray.
+if (!app.requestSingleInstanceLock()) {
+    app.exit(0);
+}
+app.on('second-instance', () => {
+    createScreenshotWindow();
+});
+
 let mainWindow: {
     win: BrowserWindow | null,
     tray: Tray | null,

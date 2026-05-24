@@ -26,7 +26,7 @@ This is a fun project I did on my spare time. It was made to fulfill the need of
 - The capture box can be moved <br><br>
 <img src="https://lh3.googleusercontent.com/u/4/drive-viewer/AEYmBYQzGQ0xX2ytssDuYwjkTxDY9ENmhj6UKsTQvCygplVF6ZHW3RISvah_R9-LJAgBIfGdgY7gfdtLcxvblCpMvDCmN9zAWQ=w1920-h868" width="400">
 
-- The `Enter` key can be pressed to perform OCR after the capture box has been drawn. The `Esc` key can be pressed to cancel/close the OCR window.
+- OCR fires automatically as soon as you release the mouse after drawing the capture box. The `Esc` key cancels and closes the overlay.
 
 ## Silent mode and notifications
 
@@ -35,7 +35,7 @@ OCR runs silently end-to-end — there is no confirmation window. The recognized
 **Flow:**
 
 ```
-hotkey  →  select region  →  Enter / OCR button  →  clipboard  +  toast
+hotkey  →  select region  →  clipboard  +  toast
 ```
 
 **Settings (Settings page):**
