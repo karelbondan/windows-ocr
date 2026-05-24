@@ -45,12 +45,13 @@ listener.onmouseup = (e) => {
     }
     prompt_popup.style.top = '1rem';
     prompt_popup.classList.remove('delay-500');
-    if (draw.offsetHeight > 10 && draw.offsetWidth > 10) {
-        prompt_wrapper.classList.add('w-[437px]');
-        prompt_wrapper.classList.remove('w-[363px]');
-        prompt_wrapper.classList.add('delay-500')
-    }
     isCreatingRectangle = false;
+    // Target flow: hotkey → select region → clipboard. Fire OCR as soon as
+    // the user releases the mouse on a usable rectangle (>10px on each side
+    // to filter accidental clicks). Esc still cancels.
+    if (draw.offsetHeight > 10 && draw.offsetWidth > 10) {
+        screenshot_bt.click();
+    }
 }
 
 listener.onmousemove = (e) => {

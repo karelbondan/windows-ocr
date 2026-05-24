@@ -1,5 +1,14 @@
 "use strict";
 listener.onmousedown = (e) => {
+    // Multi-monitor: tell the main process to tear down overlays on the OTHER
+    // displays as soon as the user commits to a screen. The active overlay
+    // stays until selection completes or ESC cancels.
+    // @ts-expect-error injected by renderer.ts
+    const displayId = window.__ocrDisplayId;
+    if (typeof displayId === "number") {
+        // @ts-expect-error
+        window.ocrRenderer.signalSelectionStarted(displayId);
+    }
     if (!draw.className.split(' ').includes("pointer-events-none"))
         draw.classList.toggle("pointer-events-none");
     const ns = "http://www.w3.org/2000/svg";
@@ -29,12 +38,13 @@ listener.onmouseup = (e) => {
     }
     prompt_popup.style.top = '1rem';
     prompt_popup.classList.remove('delay-500');
-    if (draw.offsetHeight > 10 && draw.offsetWidth > 10) {
-        prompt_wrapper.classList.add('w-[437px]');
-        prompt_wrapper.classList.remove('w-[363px]');
-        prompt_wrapper.classList.add('delay-500');
-    }
     isCreatingRectangle = false;
+    // Target flow: hotkey → select region → clipboard. Fire OCR as soon as
+    // the user releases the mouse on a usable rectangle (>10px on each side
+    // to filter accidental clicks). Esc still cancels.
+    if (draw.offsetHeight > 10 && draw.offsetWidth > 10) {
+        screenshot_bt.click();
+    }
 };
 listener.onmousemove = (e) => {
     if (isCreatingRectangle) {
