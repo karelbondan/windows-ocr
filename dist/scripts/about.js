@@ -11,6 +11,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 const kb_shortcut = document.getElementById("inp_kb_shortcut");
 const checkbox_ss = document.getElementById("checkbox_ss");
 const checkbox_notepad = document.getElementById("checkbox_notepad");
+const checkbox_notifications = document.getElementById("checkbox_notifications");
+const inp_preview_length = document.getElementById("inp_preview_length");
 const save_settings_bt = document.getElementById("save_settings");
 const reset_settings_bt = document.getElementById("reset_settings");
 const unsaved_changes = document.getElementById("unsaved_changes");
@@ -21,27 +23,40 @@ function load_config() {
     // @ts-expect-error
     return window.ocrRenderer.loadConfig()
         .then((config) => {
+        var _a;
         prev_config = config;
         kb_shortcut.value = config.keyboardShortcut;
         checkbox_ss.className = config.saveAsScreenshot ? chk_enabled : chk_disabled;
         checkbox_ss.ariaChecked = `${config.saveAsScreenshot}`;
         checkbox_notepad.className = config.openNotepad ? chk_enabled : chk_disabled;
         checkbox_notepad.ariaChecked = `${config.openNotepad}`;
+        checkbox_notifications.className = config.showNotifications ? chk_enabled : chk_disabled;
+        checkbox_notifications.ariaChecked = `${config.showNotifications}`;
+        inp_preview_length.value = String((_a = config.notificationPreviewLength) !== null && _a !== void 0 ? _a : 60);
     }).catch((err) => {
         // @ts-expect-error
         window.ocrRenderer.spawnError(`An error occured when opening the configuration file. The application will exit to prevent further errors.\n\n${err.toString()}`);
     });
 }
 load_config();
-function save_config(kb_shortcut, screenshot, notepad) {
+function save_config(kb_shortcut, screenshot, notepad, showNotifications, notificationPreviewLength) {
+    unsaved_changes.classList.remove("hidden");
     unsaved_changes.innerText = "Saving...";
     unsaved_changes.classList.add("animate-pulse");
     // @ts-expect-error
-    window.ocrRenderer.saveConfig(kb_shortcut, screenshot, notepad)
-        .then((state) => __awaiter(this, void 0, void 0, function* () {
+    window.ocrRenderer.saveConfig(kb_shortcut, screenshot, notepad, showNotifications, notificationPreviewLength)
+        .then((result) => __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        unsaved_changes.classList.remove("animate-pulse");
+        if (result && result.success === false) {
+            // Inline error: do NOT call spawnError, which would kill the
+            // app. The previous shortcut has already been re-applied by
+            // the main process, so the user can simply try again.
+            unsaved_changes.innerText = `• ${(_a = result.error) !== null && _a !== void 0 ? _a : "Failed to save"}`;
+            return;
+        }
         yield load_config();
         unsaved_changes.classList.add("hidden");
-        unsaved_changes.classList.remove("animate-pulse");
         unsaved_changes.innerText = "• Unsaved changes";
     }))
         .catch((err) => {
@@ -50,9 +65,12 @@ function save_config(kb_shortcut, screenshot, notepad) {
     });
 }
 function checkChanges(kb_shortcut) {
+    const previewLen = parseInt(inp_preview_length.value, 10);
     if (kb_shortcut !== prev_config.keyboardShortcut
         || get_boolean(checkbox_ss.ariaChecked) !== prev_config.saveAsScreenshot
-        || get_boolean(checkbox_notepad.ariaChecked) !== prev_config.openNotepad)
+        || get_boolean(checkbox_notepad.ariaChecked) !== prev_config.openNotepad
+        || get_boolean(checkbox_notifications.ariaChecked) !== prev_config.showNotifications
+        || (Number.isFinite(previewLen) && previewLen !== prev_config.notificationPreviewLength))
         unsaved_changes.classList.remove("hidden");
     else
         unsaved_changes.classList.add("hidden");
@@ -60,13 +78,17 @@ function checkChanges(kb_shortcut) {
 function get_boolean(val) {
     return /true/.test(val);
 }
+function clamp(n, lo, hi) {
+    return Math.min(hi, Math.max(lo, n));
+}
 save_settings_bt.onclick = function (e) {
     e.preventDefault();
-    save_config(kb_shortcut.value, get_boolean(checkbox_ss.ariaChecked), get_boolean(checkbox_notepad.ariaChecked));
+    const previewLen = parseInt(inp_preview_length.value, 10);
+    save_config(kb_shortcut.value, get_boolean(checkbox_ss.ariaChecked), get_boolean(checkbox_notepad.ariaChecked), get_boolean(checkbox_notifications.ariaChecked), Number.isFinite(previewLen) ? clamp(previewLen, 10, 500) : 60);
 };
 reset_settings_bt.onclick = function (e) {
     e.preventDefault();
-    save_config("Control + Shift + Alt + T", false, false);
+    save_config("Control + Shift + Alt + T", false, false, true, 60);
 };
 kb_shortcut.onkeydown = function (e) {
     e.preventDefault();
@@ -98,5 +120,14 @@ checkbox_ss.onclick = function (e) {
     e.preventDefault();
     checkbox_ss.ariaChecked = `${!get_boolean(checkbox_ss.ariaChecked)}`;
     checkbox_ss.className = get_boolean(checkbox_ss.ariaChecked) ? chk_enabled : chk_disabled;
+    checkChanges(kb_shortcut.value);
+};
+checkbox_notifications.onclick = function (e) {
+    e.preventDefault();
+    checkbox_notifications.ariaChecked = `${!get_boolean(checkbox_notifications.ariaChecked)}`;
+    checkbox_notifications.className = get_boolean(checkbox_notifications.ariaChecked) ? chk_enabled : chk_disabled;
+    checkChanges(kb_shortcut.value);
+};
+inp_preview_length.oninput = function () {
     checkChanges(kb_shortcut.value);
 };
