@@ -165,6 +165,11 @@ type SourceData = {
 async function createScreenshotWindow() {
     const displays = screen.getAllDisplays();
     const bounds = displays.map(display => display.bounds);
+    // remember which display the cursor is on so we can focus its window
+    // after every overlay finishes transitioning to fullscreen
+    const cursorPoint = screen.getCursorScreenPoint();
+    const focusDisplay = screen.getDisplayNearestPoint(cursorPoint);
+    const focusDisplayID = String(focusDisplay.id);
     // current workaround for display_id being an empty string in 
     // wayland (linux) -> tested on debian 13
     const sourceData: SourceData = {};
@@ -227,6 +232,15 @@ async function createScreenshotWindow() {
         const display = displaysMapping[key];
         makeScreenshotWindow(display[idx % display.length], data.display_id);
     });
+
+    // focus the overlay on the display containing the cursor, after the
+    // setFullScreen(500ms) inside makeScreenshotWindow has settled
+    setTimeout(() => {
+        const target = screenshotWindows[focusDisplayID];
+        if (target && !target.isDestroyed()) {
+            target.focus();
+        }
+    }, 600);
 }
 
 function createAboutWindow() {
@@ -391,6 +405,22 @@ app.whenReady().then(async () => {
 
     if (process.platform === 'win32')
         app.setAppUserModelId("Windows OCR");
+
+    screen.on('display-added', (_event, display) => {
+        console.log("display-added", display.id, display.bounds);
+    });
+    screen.on('display-removed', (_event, display) => {
+        const key = String(display.id);
+        console.log("display-removed", display.id);
+        const orphan = screenshotWindows[key];
+        if (orphan && !orphan.isDestroyed()) {
+            orphan.close();
+        }
+        delete screenshotWindows[key];
+    });
+    screen.on('display-metrics-changed', (_event, display, changedMetrics) => {
+        console.log("display-metrics-changed", display.id, changedMetrics);
+    });
 
     createMainWindow();
 
