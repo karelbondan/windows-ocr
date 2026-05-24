@@ -8,7 +8,8 @@ const unsaved_changes = document.getElementById("unsaved_changes") as HTMLParagr
 interface userConfig {
     keyboardShortcut: string
     saveAsScreenshot: boolean,
-    openNotepad: boolean
+    openNotepad: boolean,
+    silentClipboardMode: boolean
 }
 
 const chk_disabled = "min-w-5 min-h-5 bg-neutral-700 outline-none outline-offset-0 rounded-sm cursor-pointer transition-all";

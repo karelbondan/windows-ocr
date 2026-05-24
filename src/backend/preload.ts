@@ -15,8 +15,9 @@ export const ocrRenderer = {
     closeWindow: (error: string, escape: boolean) => ipcRenderer.send('window:close', { error: error, escape: escape }),
     spawnError: (message: string) => ipcRenderer.send('window:error', message),
     loadConfig: () => ipcRenderer.invoke('config:load'),
-    saveConfig: (shortcut: string, ss: boolean, notepad: boolean) => ipcRenderer.invoke('config:save', { shortcut: shortcut, ss: ss, notepad: notepad }),
-    writeTextToFile: (content: string) => fs.writeFileSync(path.join(os.tmpdir(), 'WindowsOCRResult.txt'), content, { encoding: 'utf-8' })
+    saveConfig: (shortcut: string, ss: boolean, notepad: boolean, silent: boolean) => ipcRenderer.invoke('config:save', { shortcut: shortcut, ss: ss, notepad: notepad, silent: silent }),
+    writeTextToFile: (content: string) => fs.writeFileSync(path.join(os.tmpdir(), 'WindowsOCRResult.txt'), content, { encoding: 'utf-8' }),
+    getSilentMode: () => ipcRenderer.invoke('config:silent-mode')
 }
 
 contextBridge.exposeInMainWorld('ocrRenderer', ocrRenderer);

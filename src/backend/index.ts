@@ -39,12 +39,13 @@ function _focusWindow(keys: string[]) {
 }
 
 
-function saveConfig(shortcut: string, ss: boolean, notepad: boolean) {
+function saveConfig(shortcut: string, ss: boolean, notepad: boolean, silent: boolean) {
     const kb_shortcut = shortcut ? shortcut.trim() : "";
     fs.writeFileSync(path.join(process.cwd(), 'config.json'), JSON.stringify({
         keyboardShortcut: kb_shortcut,
         saveAsScreenshot: ss,
-        openNotepad: notepad
+        openNotepad: notepad,
+        silentClipboardMode: silent
     }));
 }
 
@@ -55,8 +56,17 @@ function loadConfig() {
 
 try {
     usrConfig = loadConfig();
+    if (typeof usrConfig.silentClipboardMode !== 'boolean') {
+        saveConfig(
+            usrConfig.keyboardShortcut ?? "Control + Shift + Alt + T",
+            usrConfig.saveAsScreenshot ?? false,
+            usrConfig.openNotepad ?? false,
+            false
+        );
+        usrConfig = loadConfig();
+    }
 } catch (error) {
-    saveConfig("Control + Shift + Alt + T", false, false);
+    saveConfig("Control + Shift + Alt + T", false, false, false);
     usrConfig = loadConfig();
 }
 
@@ -320,9 +330,9 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('config:save', (event, config: {
-        shortcut: string, ss: boolean, notepad: boolean
+        shortcut: string, ss: boolean, notepad: boolean, silent: boolean
     }) => {
-        saveConfig(config.shortcut, config.ss, config.notepad);
+        saveConfig(config.shortcut, config.ss, config.notepad, config.silent);
 
         usrConfig = loadConfig();
 
@@ -341,6 +351,10 @@ app.whenReady().then(async () => {
             body: "Configuration was updated and changes have been implemented successfully."
         }).show();
         return true;
+    })
+
+    ipcMain.handle('config:silent-mode', () => {
+        return usrConfig.silentClipboardMode === true;
     })
 
     ipcMain.on('window:close', (event, args: { error: string, escape: boolean }) => {
