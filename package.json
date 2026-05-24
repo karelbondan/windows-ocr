@@ -1,7 +1,7 @@
 {
   "name": "windows-ocr",
   "productName": "Windows OCR",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "windows ocr using google vision",
   "author": "Karel Bondan",
   "license": "ISC",
