@@ -20,7 +20,8 @@ exports.ocrRenderer = {
     closeWindow: (error, escape) => electron_1.ipcRenderer.send('window:close', { error: error, escape: escape }),
     spawnError: (message) => electron_1.ipcRenderer.send('window:error', message),
     loadConfig: () => electron_1.ipcRenderer.invoke('config:load'),
-    saveConfig: (shortcut, ss, notepad) => electron_1.ipcRenderer.invoke('config:save', { shortcut: shortcut, ss: ss, notepad: notepad }),
-    writeTextToFile: (content) => fs_1.default.writeFileSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRResult.txt'), content, { encoding: 'utf-8' })
+    saveConfig: (shortcut, ss, notepad, silent) => electron_1.ipcRenderer.invoke('config:save', { shortcut: shortcut, ss: ss, notepad: notepad, silent: silent }),
+    writeTextToFile: (content) => fs_1.default.writeFileSync(path_1.default.join(os_1.default.tmpdir(), 'WindowsOCRResult.txt'), content, { encoding: 'utf-8' }),
+    getSilentMode: () => electron_1.ipcRenderer.invoke('config:silent-mode')
 };
 electron_1.contextBridge.exposeInMainWorld('ocrRenderer', exports.ocrRenderer);

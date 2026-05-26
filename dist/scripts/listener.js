@@ -1,4 +1,13 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 listener.onmousedown = (e) => {
     if (!draw.className.split(' ').includes("pointer-events-none"))
         draw.classList.toggle("pointer-events-none");
@@ -23,7 +32,7 @@ listener.onmousedown = (e) => {
     isDragging = false;
     isCreatingRectangle = true;
 };
-listener.onmouseup = (e) => {
+listener.onmouseup = (e) => __awaiter(void 0, void 0, void 0, function* () {
     if (!isDragging) {
         draw.classList.toggle("pointer-events-none");
     }
@@ -33,9 +42,14 @@ listener.onmouseup = (e) => {
         prompt_wrapper.classList.add('w-[437px]');
         prompt_wrapper.classList.remove('w-[363px]');
         prompt_wrapper.classList.add('delay-500');
+        // @ts-expect-error
+        const silent = yield window.ocrRenderer.getSilentMode();
+        if (silent && !screenshot_bt.disabled) {
+            screenshot_bt.click();
+        }
     }
     isCreatingRectangle = false;
-};
+});
 listener.onmousemove = (e) => {
     if (isCreatingRectangle) {
         let right = listener.clientWidth - e.x;

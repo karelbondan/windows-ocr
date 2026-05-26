@@ -39,12 +39,13 @@ function _focusWindow(keys: string[]) {
 }
 
 
-function saveConfig(shortcut: string, ss: boolean, notepad: boolean) {
+function saveConfig(shortcut: string, ss: boolean, notepad: boolean, silent: boolean) {
     const kb_shortcut = shortcut ? shortcut.trim() : "";
     fs.writeFileSync(path.join(process.cwd(), 'config.json'), JSON.stringify({
         keyboardShortcut: kb_shortcut,
         saveAsScreenshot: ss,
-        openNotepad: notepad
+        openNotepad: notepad,
+        silentClipboardMode: silent
     }));
 }
 
@@ -55,8 +56,17 @@ function loadConfig() {
 
 try {
     usrConfig = loadConfig();
+    if (typeof usrConfig.silentClipboardMode !== 'boolean') {
+        saveConfig(
+            usrConfig.keyboardShortcut ?? "Control + Shift + Alt + T",
+            usrConfig.saveAsScreenshot ?? false,
+            usrConfig.openNotepad ?? false,
+            false
+        );
+        usrConfig = loadConfig();
+    }
 } catch (error) {
-    saveConfig("Control + Shift + Alt + T", false, false);
+    saveConfig("Control + Shift + Alt + T", false, false, false);
     usrConfig = loadConfig();
 }
 
@@ -155,6 +165,11 @@ type SourceData = {
 async function createScreenshotWindow() {
     const displays = screen.getAllDisplays();
     const bounds = displays.map(display => display.bounds);
+    // remember which display the cursor is on so we can focus its window
+    // after every overlay finishes transitioning to fullscreen
+    const cursorPoint = screen.getCursorScreenPoint();
+    const focusDisplay = screen.getDisplayNearestPoint(cursorPoint);
+    const focusDisplayID = String(focusDisplay.id);
     // current workaround for display_id being an empty string in 
     // wayland (linux) -> tested on debian 13
     const sourceData: SourceData = {};
@@ -217,6 +232,15 @@ async function createScreenshotWindow() {
         const display = displaysMapping[key];
         makeScreenshotWindow(display[idx % display.length], data.display_id);
     });
+
+    // focus the overlay on the display containing the cursor, after the
+    // setFullScreen(500ms) inside makeScreenshotWindow has settled
+    setTimeout(() => {
+        const target = screenshotWindows[focusDisplayID];
+        if (target && !target.isDestroyed()) {
+            target.focus();
+        }
+    }, 600);
 }
 
 function createAboutWindow() {
@@ -320,9 +344,9 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('config:save', (event, config: {
-        shortcut: string, ss: boolean, notepad: boolean
+        shortcut: string, ss: boolean, notepad: boolean, silent: boolean
     }) => {
-        saveConfig(config.shortcut, config.ss, config.notepad);
+        saveConfig(config.shortcut, config.ss, config.notepad, config.silent);
 
         usrConfig = loadConfig();
 
@@ -341,6 +365,10 @@ app.whenReady().then(async () => {
             body: "Configuration was updated and changes have been implemented successfully."
         }).show();
         return true;
+    })
+
+    ipcMain.handle('config:silent-mode', () => {
+        return usrConfig.silentClipboardMode === true;
     })
 
     ipcMain.on('window:close', (event, args: { error: string, escape: boolean }) => {
@@ -377,6 +405,22 @@ app.whenReady().then(async () => {
 
     if (process.platform === 'win32')
         app.setAppUserModelId("Windows OCR");
+
+    screen.on('display-added', (_event, display) => {
+        console.log("display-added", display.id, display.bounds);
+    });
+    screen.on('display-removed', (_event, display) => {
+        const key = String(display.id);
+        console.log("display-removed", display.id);
+        const orphan = screenshotWindows[key];
+        if (orphan && !orphan.isDestroyed()) {
+            orphan.close();
+        }
+        delete screenshotWindows[key];
+    });
+    screen.on('display-metrics-changed', (_event, display, changedMetrics) => {
+        console.log("display-metrics-changed", display.id, changedMetrics);
+    });
 
     createMainWindow();
 

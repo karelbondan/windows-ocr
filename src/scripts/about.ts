@@ -1,6 +1,7 @@
 const kb_shortcut = document.getElementById("inp_kb_shortcut") as HTMLInputElement;
 const checkbox_ss = document.getElementById("checkbox_ss") as HTMLDivElement;
 const checkbox_notepad = document.getElementById("checkbox_notepad") as HTMLDivElement;
+const checkbox_silent = document.getElementById("checkbox_silent") as HTMLDivElement;
 const save_settings_bt = document.getElementById("save_settings") as HTMLButtonElement;
 const reset_settings_bt = document.getElementById("reset_settings") as HTMLButtonElement;
 const unsaved_changes = document.getElementById("unsaved_changes") as HTMLParagraphElement;
@@ -8,7 +9,8 @@ const unsaved_changes = document.getElementById("unsaved_changes") as HTMLParagr
 interface userConfig {
     keyboardShortcut: string
     saveAsScreenshot: boolean,
-    openNotepad: boolean
+    openNotepad: boolean,
+    silentClipboardMode: boolean
 }
 
 const chk_disabled = "min-w-5 min-h-5 bg-neutral-700 outline-none outline-offset-0 rounded-sm cursor-pointer transition-all";
@@ -25,6 +27,8 @@ function load_config() {
             checkbox_ss.ariaChecked = `${config.saveAsScreenshot}`;
             checkbox_notepad.className = config.openNotepad ? chk_enabled : chk_disabled;
             checkbox_notepad.ariaChecked = `${config.openNotepad}`;
+            checkbox_silent.className = config.silentClipboardMode ? chk_enabled : chk_disabled;
+            checkbox_silent.ariaChecked = `${config.silentClipboardMode}`;
         }).catch((err: any) => {
             // @ts-expect-error
             window.ocrRenderer.spawnError(`An error occured when opening the configuration file. The application will exit to prevent further errors.\n\n${err.toString()}`);
@@ -33,12 +37,12 @@ function load_config() {
 
 load_config();
 
-function save_config(kb_shortcut: string, screenshot: boolean, notepad: boolean) {
+function save_config(kb_shortcut: string, screenshot: boolean, notepad: boolean, silent: boolean) {
     unsaved_changes.innerText = "Saving...";
     unsaved_changes.classList.add("animate-pulse");
 
     // @ts-expect-error
-    window.ocrRenderer.saveConfig(kb_shortcut, screenshot, notepad)
+    window.ocrRenderer.saveConfig(kb_shortcut, screenshot, notepad, silent)
         .then(async (state: boolean) => {
             await load_config();
             unsaved_changes.classList.add("hidden");
@@ -56,6 +60,7 @@ function checkChanges(kb_shortcut: string) {
         kb_shortcut !== prev_config.keyboardShortcut
         || get_boolean(checkbox_ss.ariaChecked!) !== prev_config.saveAsScreenshot
         || get_boolean(checkbox_notepad.ariaChecked!) !== prev_config.openNotepad
+        || get_boolean(checkbox_silent.ariaChecked!) !== prev_config.silentClipboardMode
     )
         unsaved_changes.classList.remove("hidden");
     else
@@ -72,12 +77,13 @@ save_settings_bt.onclick = function (e) {
         kb_shortcut.value,
         get_boolean(checkbox_ss.ariaChecked!),
         get_boolean(checkbox_notepad.ariaChecked!),
+        get_boolean(checkbox_silent.ariaChecked!),
     );
 }
 
 reset_settings_bt.onclick = function (e) {
     e.preventDefault();
-    save_config("Control + Shift + Alt + T", false, false);
+    save_config("Control + Shift + Alt + T", false, false, false);
 }
 
 kb_shortcut.onkeydown = function (e) {
@@ -113,5 +119,12 @@ checkbox_ss.onclick = function (e) {
     e.preventDefault();
     checkbox_ss.ariaChecked = `${!get_boolean(checkbox_ss.ariaChecked!)}`
     checkbox_ss.className = get_boolean(checkbox_ss.ariaChecked!) ? chk_enabled : chk_disabled;
+    checkChanges(kb_shortcut.value);
+}
+
+checkbox_silent.onclick = function (e) {
+    e.preventDefault();
+    checkbox_silent.ariaChecked = `${!get_boolean(checkbox_silent.ariaChecked!)}`
+    checkbox_silent.className = get_boolean(checkbox_silent.ariaChecked!) ? chk_enabled : chk_disabled;
     checkChanges(kb_shortcut.value);
 }

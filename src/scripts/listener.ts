@@ -29,7 +29,7 @@ listener.onmousedown = (e) => {
     isCreatingRectangle = true;
 }
 
-listener.onmouseup = (e) => {
+listener.onmouseup = async (e) => {
     if (!isDragging){
         draw.classList.toggle("pointer-events-none");
     }
@@ -39,6 +39,12 @@ listener.onmouseup = (e) => {
         prompt_wrapper.classList.add('w-[437px]');
         prompt_wrapper.classList.remove('w-[363px]');
         prompt_wrapper.classList.add('delay-500')
+
+        // @ts-expect-error
+        const silent: boolean = await window.ocrRenderer.getSilentMode();
+        if (silent && !screenshot_bt.disabled) {
+            screenshot_bt.click();
+        }
     }
     isCreatingRectangle = false;
 }

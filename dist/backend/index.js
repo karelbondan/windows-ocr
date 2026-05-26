@@ -11,6 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
@@ -35,12 +36,13 @@ function _focusWindow(keys) {
         screenshotWindows[displayID].focus();
     }
 }
-function saveConfig(shortcut, ss, notepad) {
+function saveConfig(shortcut, ss, notepad, silent) {
     const kb_shortcut = shortcut ? shortcut.trim() : "";
     fs_1.default.writeFileSync(path_1.default.join(process.cwd(), 'config.json'), JSON.stringify({
         keyboardShortcut: kb_shortcut,
         saveAsScreenshot: ss,
-        openNotepad: notepad
+        openNotepad: notepad,
+        silentClipboardMode: silent
     }));
 }
 function loadConfig() {
@@ -48,9 +50,13 @@ function loadConfig() {
 }
 try {
     usrConfig = loadConfig();
+    if (typeof usrConfig.silentClipboardMode !== 'boolean') {
+        saveConfig((_a = usrConfig.keyboardShortcut) !== null && _a !== void 0 ? _a : "Control + Shift + Alt + T", (_b = usrConfig.saveAsScreenshot) !== null && _b !== void 0 ? _b : false, (_c = usrConfig.openNotepad) !== null && _c !== void 0 ? _c : false, false);
+        usrConfig = loadConfig();
+    }
 }
 catch (error) {
-    saveConfig("Control + Shift + Alt + T", false, false);
+    saveConfig("Control + Shift + Alt + T", false, false, false);
     usrConfig = loadConfig();
 }
 function createMainWindow() {
@@ -137,6 +143,11 @@ function createScreenshotWindow() {
     return __awaiter(this, void 0, void 0, function* () {
         const displays = electron_1.screen.getAllDisplays();
         const bounds = displays.map(display => display.bounds);
+        // remember which display the cursor is on so we can focus its window
+        // after every overlay finishes transitioning to fullscreen
+        const cursorPoint = electron_1.screen.getCursorScreenPoint();
+        const focusDisplay = electron_1.screen.getDisplayNearestPoint(cursorPoint);
+        const focusDisplayID = String(focusDisplay.id);
         // current workaround for display_id being an empty string in 
         // wayland (linux) -> tested on debian 13
         const sourceData = {};
@@ -193,6 +204,14 @@ function createScreenshotWindow() {
             const display = displaysMapping[key];
             makeScreenshotWindow(display[idx % display.length], data.display_id);
         });
+        // focus the overlay on the display containing the cursor, after the
+        // setFullScreen(500ms) inside makeScreenshotWindow has settled
+        setTimeout(() => {
+            const target = screenshotWindows[focusDisplayID];
+            if (target && !target.isDestroyed()) {
+                target.focus();
+            }
+        }, 600);
     });
 }
 function createAboutWindow() {
@@ -281,7 +300,7 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         return loadConfig();
     });
     electron_1.ipcMain.handle('config:save', (event, config) => {
-        saveConfig(config.shortcut, config.ss, config.notepad);
+        saveConfig(config.shortcut, config.ss, config.notepad, config.silent);
         usrConfig = loadConfig();
         const regUpdateSuccess = registerShortcut(usrConfig);
         if (!regUpdateSuccess.reason && regUpdateSuccess.reason === "reg_failed") {
@@ -294,6 +313,9 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
             body: "Configuration was updated and changes have been implemented successfully."
         }).show();
         return true;
+    });
+    electron_1.ipcMain.handle('config:silent-mode', () => {
+        return usrConfig.silentClipboardMode === true;
     });
     electron_1.ipcMain.on('window:close', (event, args) => {
         if (args.error === "") {
@@ -322,6 +344,21 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     const shortcutRegSuccess = registerShortcut(usrConfig);
     if (process.platform === 'win32')
         electron_1.app.setAppUserModelId("Windows OCR");
+    electron_1.screen.on('display-added', (_event, display) => {
+        console.log("display-added", display.id, display.bounds);
+    });
+    electron_1.screen.on('display-removed', (_event, display) => {
+        const key = String(display.id);
+        console.log("display-removed", display.id);
+        const orphan = screenshotWindows[key];
+        if (orphan && !orphan.isDestroyed()) {
+            orphan.close();
+        }
+        delete screenshotWindows[key];
+    });
+    electron_1.screen.on('display-metrics-changed', (_event, display, changedMetrics) => {
+        console.log("display-metrics-changed", display.id, changedMetrics);
+    });
     createMainWindow();
     electron_1.app.on('activate', () => {
         if (electron_1.BrowserWindow.getAllWindows().length === 0)
